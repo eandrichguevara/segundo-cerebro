@@ -212,7 +212,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           // Hint text
                           Text(
                             _audioState == AudioServiceState.idle
-                                ? 'Mantén presionado para hablar'
+                                ? 'Tocá para hablar'
                                 : '',
                             style: TextStyle(
                               color: Colors.white.withValues(alpha: 0.5),

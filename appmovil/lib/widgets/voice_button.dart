@@ -16,7 +16,6 @@ class VoiceButton extends StatefulWidget {
 class _VoiceButtonState extends State<VoiceButton>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
-  late Animation<double> _scaleAnimation;
   late Animation<double> _pulseAnimation;
 
   AudioServiceState _state = AudioServiceState.idle;
@@ -27,13 +26,6 @@ class _VoiceButtonState extends State<VoiceButton>
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
-    );
-
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.9).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.easeInOut,
-      ),
     );
 
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.3).animate(
@@ -90,20 +82,10 @@ class _VoiceButtonState extends State<VoiceButton>
     }
   }
 
-  void _onTapDown(TapDownDetails details) {
+  void _onTap() {
     if (_state == AudioServiceState.idle) {
       widget.audioService.startRecording();
-    }
-  }
-
-  void _onTapUp(TapUpDetails details) {
-    if (_state == AudioServiceState.recording) {
-      widget.audioService.stopRecording();
-    }
-  }
-
-  void _onTapCancel() {
-    if (_state == AudioServiceState.recording) {
+    } else if (_state == AudioServiceState.recording) {
       widget.audioService.stopRecording();
     }
   }
@@ -111,15 +93,13 @@ class _VoiceButtonState extends State<VoiceButton>
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTapDown: _onTapDown,
-      onTapUp: _onTapUp,
-      onTapCancel: _onTapCancel,
+      onTap: _onTap,
       child: AnimatedBuilder(
         animation: _animationController,
         builder: (context, child) {
           final scale = _state == AudioServiceState.recording
               ? _pulseAnimation.value
-              : _scaleAnimation.value;
+              : 1.0;
 
           return Transform.scale(
             scale: scale,
