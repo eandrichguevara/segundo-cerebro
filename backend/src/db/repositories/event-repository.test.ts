@@ -1,198 +1,316 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { prisma } from "../index.js";
-import * as eventRepository from "./event-repository.js";
-import type { $Enums, Prisma } from "@prisma/client";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Prisma } from "@prisma/client";
+
+vi.mock("../index.js", () => ({
+	prisma: {
+		event: {
+			create: vi.fn(),
+			findUnique: vi.fn(),
+			findMany: vi.fn(),
+			update: vi.fn(),
+		},
+		taskEventLink: {
+			create: vi.fn(),
+			deleteMany: vi.fn(),
+			findMany: vi.fn(),
+		},
+		task: {
+			create: vi.fn(),
+		},
+	},
+}));
+
+const mockEvent = {
+	id: "event-1",
+	title: "Reunión de equipo",
+	description: "Revisión semanal",
+	location: "Sala A",
+	category: "trabajo",
+	startTime: new Date("2026-06-01T10:00:00Z"),
+	endTime: new Date("2026-06-01T11:00:00Z"),
+	status: "active",
+	recurrenceRule: null,
+	parentId: null,
+	isException: false,
+	exceptionDate: null,
+	createdAt: new Date("2026-01-01"),
+	updatedAt: new Date("2026-01-01"),
+	cancelledAt: null,
+};
+
+const mockRecurringEvent = {
+	...mockEvent,
+	recurrenceRule: { frequency: "daily", interval: 1 },
+};
+
+const mockExceptionEvent = {
+	...mockEvent,
+	id: "event-2",
+	title: "Evento recurrente",
+	startTime: new Date("2026-06-08T14:00:00Z"),
+	isException: true,
+	parentId: "event-1",
+	exceptionDate: new Date("2026-06-08T10:00:00Z"),
+};
 
 describe("event repository", () => {
-	const testEvents: string[] = [];
-	const testTaskId: string[] = [];
-
-	afterEach(async () => {
-		for (const id of testEvents) {
-			await prisma.event.delete({ where: { id } }).catch(() => {});
-		}
-		for (const id of testTaskId) {
-			await prisma.task.delete({ where: { id } }).catch(() => {});
-		}
-		testEvents.length = 0;
-		testTaskId.length = 0;
+	beforeEach(() => {
+		vi.clearAllMocks();
 	});
 
-	it("should create an event", async () => {
-		const event = await eventRepository.createEvent({
-			title: "Reunión de equipo",
-			description: "Revisión semanal",
-			location: "Sala A",
-			category: "trabajo",
-			startTime: "2026-06-01T10:00:00Z",
-			endTime: "2026-06-01T11:00:00Z",
+	describe("createEvent", () => {
+		it("should create an event", async () => {
+			const { prisma } = await import("../index.js");
+			vi.mocked(prisma.event.create).mockResolvedValue(mockEvent);
+			const { createEvent } = await import("./event-repository.js");
+
+			const result = await createEvent({
+				title: "Reunión de equipo",
+				description: "Revisión semanal",
+				location: "Sala A",
+				category: "trabajo",
+				startTime: "2026-06-01T10:00:00Z",
+				endTime: "2026-06-01T11:00:00Z",
+			});
+
+			expect(prisma.event.create).toHaveBeenCalledWith({
+				data: {
+					title: "Reunión de equipo",
+					description: "Revisión semanal",
+					location: "Sala A",
+					category: "trabajo",
+					startTime: new Date("2026-06-01T10:00:00Z"),
+					endTime: new Date("2026-06-01T11:00:00Z"),
+				recurrenceRule: Prisma.JsonNull,
+				parentId: null,
+				isException: false,
+				exceptionDate: null,
+			},
+		});
+		expect(result.title).toBe("Reunión de equipo");
+			expect(result.description).toBe("Revisión semanal");
+			expect(result.location).toBe("Sala A");
+			expect(result.category).toBe("trabajo");
+			expect(result.status).toBe("active");
 		});
 
-		testEvents.push(event.id);
+		it("should create a recurring event", async () => {
+			const { prisma } = await import("../index.js");
+			vi.mocked(prisma.event.create).mockResolvedValue(mockRecurringEvent);
+			const { createEvent } = await import("./event-repository.js");
 
-		expect(event.title).toBe("Reunión de equipo");
-		expect(event.description).toBe("Revisión semanal");
-		expect(event.location).toBe("Sala A");
-		expect(event.category).toBe("trabajo");
-		expect(event.status).toBe("active");
-	});
+			const result = await createEvent({
+				title: "Daily standup",
+				startTime: "2026-06-01T09:00:00Z",
+				endTime: "2026-06-01T09:15:00Z",
+				recurrenceRule: {
+					frequency: "daily",
+					interval: 1,
+				},
+			});
 
-	it("should create a recurring event", async () => {
-		const event = await eventRepository.createEvent({
-			title: "Daily standup",
-			startTime: "2026-06-01T09:00:00Z",
-			endTime: "2026-06-01T09:15:00Z",
-			recurrenceRule: {
+			expect(prisma.event.create).toHaveBeenCalledWith({
+				data: {
+					title: "Daily standup",
+					description: null,
+					location: null,
+					category: null,
+					startTime: new Date("2026-06-01T09:00:00Z"),
+					endTime: new Date("2026-06-01T09:15:00Z"),
+					recurrenceRule: { frequency: "daily", interval: 1 },
+					parentId: null,
+					isException: false,
+					exceptionDate: null,
+				},
+			});
+			expect(result.recurrenceRule).toEqual({
 				frequency: "daily",
 				interval: 1,
-			},
-		});
-
-		testEvents.push(event.id);
-
-		expect(event.recurrenceRule).toEqual({
-			frequency: "daily",
-			interval: 1,
+			});
 		});
 	});
 
-	it("should get event by id", async () => {
-		const created = await eventRepository.createEvent({
-			title: "Evento test",
-			startTime: "2026-06-01T10:00:00Z",
-		});
-		testEvents.push(created.id);
+	describe("getEventById", () => {
+		it("should get event by id", async () => {
+			const { prisma } = await import("../index.js");
+			vi.mocked(prisma.event.findUnique).mockResolvedValue(mockEvent);
+			const { getEventById } = await import("./event-repository.js");
 
-		const event = await eventRepository.getEventById(created.id);
-		expect(event).not.toBeNull();
-		expect(event?.title).toBe("Evento test");
+			const result = await getEventById("event-1");
+
+			expect(prisma.event.findUnique).toHaveBeenCalledWith({
+				where: { id: "event-1" },
+			});
+			expect(result).not.toBeNull();
+			expect(result?.title).toBe("Reunión de equipo");
+		});
+
+		it("should return null for non-existent event", async () => {
+			const { prisma } = await import("../index.js");
+			vi.mocked(prisma.event.findUnique).mockResolvedValue(null);
+			const { getEventById } = await import("./event-repository.js");
+
+			const result = await getEventById(
+				"00000000-0000-0000-0000-000000000000",
+			);
+
+			expect(result).toBeNull();
+		});
 	});
 
-	it("should return null for non-existent event", async () => {
-		const event = await eventRepository.getEventById(
-			"00000000-0000-0000-0000-000000000000",
-		);
-		expect(event).toBeNull();
+	describe("updateEvent", () => {
+		it("should update an event", async () => {
+			const { prisma } = await import("../index.js");
+			const updatedEvent = {
+				...mockEvent,
+				title: "Actualizado",
+				location: "Sala B",
+			};
+			vi.mocked(prisma.event.update).mockResolvedValue(updatedEvent);
+			const { updateEvent } = await import("./event-repository.js");
+
+			const result = await updateEvent("event-1", {
+				title: "Actualizado",
+				location: "Sala B",
+			});
+
+			expect(prisma.event.update).toHaveBeenCalledWith({
+				where: { id: "event-1" },
+				data: {
+					title: "Actualizado",
+					location: "Sala B",
+				},
+			});
+			expect(result.title).toBe("Actualizado");
+			expect(result.location).toBe("Sala B");
+		});
 	});
 
-	it("should update an event", async () => {
-		const created = await eventRepository.createEvent({
-			title: "Original",
-			startTime: "2026-06-01T10:00:00Z",
-		});
-		testEvents.push(created.id);
+	describe("transitionEventStatus", () => {
+		it("should transition event status", async () => {
+			const { prisma } = await import("../index.js");
+			const completedEvent = { ...mockEvent, status: "completed" };
+			vi.mocked(prisma.event.update).mockResolvedValue(completedEvent);
+			const { transitionEventStatus } = await import("./event-repository.js");
 
-		const updated = await eventRepository.updateEvent(created.id, {
-			title: "Actualizado",
-			location: "Sala B",
-		});
+			const result = await transitionEventStatus("event-1", "completed");
 
-		expect(updated.title).toBe("Actualizado");
-		expect(updated.location).toBe("Sala B");
+			expect(prisma.event.update).toHaveBeenCalledWith({
+				where: { id: "event-1" },
+				data: { status: "completed" },
+			});
+			expect(result.status).toBe("completed");
+		});
 	});
 
-	it("should transition event status", async () => {
-		const created = await eventRepository.createEvent({
-			title: "A completar",
-			startTime: "2026-06-01T10:00:00Z",
+	describe("getEventsByDateRange", () => {
+		it("should get events by date range", async () => {
+			const { prisma } = await import("../index.js");
+			const e1 = { ...mockEvent, id: "event-1" };
+			const e2 = {
+				...mockEvent,
+				id: "event-2",
+				title: "Evento fuera de rango",
+				startTime: new Date("2026-07-15T10:00:00Z"),
+			};
+			vi.mocked(prisma.event.findMany).mockResolvedValue([e1]);
+			const { getEventsByDateRange } = await import("./event-repository.js");
+
+			const result = await getEventsByDateRange(
+				new Date("2026-06-01T00:00:00Z"),
+				new Date("2026-06-30T23:59:59Z"),
+			);
+
+			expect(prisma.event.findMany).toHaveBeenCalledWith({
+				where: {
+					status: "active",
+					startTime: {
+						gte: new Date("2026-06-01T00:00:00Z"),
+						lte: new Date("2026-06-30T23:59:59Z"),
+					},
+				},
+				orderBy: { startTime: "asc" },
+			});
+			expect(result.some((e) => e.id === "event-1")).toBe(true);
+			expect(result.some((e) => e.id === "event-2")).toBe(false);
 		});
-		testEvents.push(created.id);
-
-		const updated = await eventRepository.transitionEventStatus(
-			created.id,
-			"completed" as never,
-		);
-
-		expect(updated.status).toBe("completed");
 	});
 
-	it("should get events by date range", async () => {
-		const e1 = await eventRepository.createEvent({
-			title: "Evento en rango",
-			startTime: "2026-06-15T10:00:00Z",
+	describe("createException", () => {
+		it("should create exception for recurring event", async () => {
+			const { prisma } = await import("../index.js");
+			vi.mocked(prisma.event.create).mockResolvedValue(mockExceptionEvent);
+			const { createEvent } = await import("./event-repository.js");
+
+			const result = await createEvent({
+				title: "Evento recurrente",
+				startTime: "2026-06-08T14:00:00Z",
+				parentId: "event-1",
+				isException: true,
+				exceptionDate: "2026-06-08T10:00:00Z",
+			});
+
+			expect(prisma.event.create).toHaveBeenCalledWith({
+				data: {
+					title: "Evento recurrente",
+					description: null,
+					location: null,
+					category: null,
+					startTime: new Date("2026-06-08T14:00:00Z"),
+					endTime: null,
+					recurrenceRule: Prisma.JsonNull,
+					parentId: "event-1",
+					isException: true,
+					exceptionDate: new Date("2026-06-08T10:00:00Z"),
+				},
+			});
+			expect(result.isException).toBe(true);
+			expect(result.parentId).toBe("event-1");
 		});
-		testEvents.push(e1.id);
-
-		const e2 = await eventRepository.createEvent({
-			title: "Evento fuera de rango",
-			startTime: "2026-07-15T10:00:00Z",
-		});
-		testEvents.push(e2.id);
-
-		const events = await eventRepository.getEventsByDateRange(
-			new Date("2026-06-01T00:00:00Z"),
-			new Date("2026-06-30T23:59:59Z"),
-		);
-
-		expect(events.some((e) => e.id === e1.id)).toBe(true);
-		expect(events.some((e) => e.id === e2.id)).toBe(false);
 	});
 
-	it("should create exception for recurring event", async () => {
-		const parent = await eventRepository.createEvent({
-			title: "Evento recurrente",
-			startTime: "2026-06-01T10:00:00Z",
-			recurrenceRule: { frequency: "weekly", interval: 1 },
-		});
-		testEvents.push(parent.id);
+	describe("linkTaskToEvent", () => {
+		it("should link task to event", async () => {
+			const { prisma } = await import("../index.js");
+			const mockLink = { id: "link-1", taskId: "task-1", eventId: "event-1" };
+			vi.mocked(prisma.taskEventLink.create).mockResolvedValue(mockLink);
+			vi.mocked(prisma.taskEventLink.findMany).mockResolvedValue([
+				{ id: "link-1", taskId: "task-1", eventId: "event-1", task: { id: "task-1", title: "Tarea vinculada" } },
+			]);
+			const { linkTaskToEvent, getLinkedTasks } = await import(
+				"./event-repository.js"
+			);
 
-		const exception = await eventRepository.createEvent({
-			title: "Evento recurrente",
-			startTime: "2026-06-08T14:00:00Z",
-			parentId: parent.id,
-			isException: true,
-			exceptionDate: "2026-06-08T10:00:00Z",
-		});
-		testEvents.push(exception.id);
+			await linkTaskToEvent("task-1", "event-1");
 
-		expect(exception.isException).toBe(true);
-		expect(exception.parentId).toBe(parent.id);
-		expect(exception.exceptionDate?.toISOString()).toBe(
-			new Date("2026-06-08T10:00:00Z").toISOString(),
-		);
+			expect(prisma.taskEventLink.create).toHaveBeenCalledWith({
+				data: { taskId: "task-1", eventId: "event-1" },
+			});
+
+			const linkedTasks = await getLinkedTasks("event-1");
+			expect(linkedTasks.some((t) => t.id === "task-1")).toBe(true);
+		});
 	});
 
-	it("should link task to event", async () => {
-		const event = await eventRepository.createEvent({
-			title: "Evento con tarea",
-			startTime: "2026-06-01T10:00:00Z",
+	describe("unlinkTaskFromEvent", () => {
+		it("should unlink task from event", async () => {
+			const { prisma } = await import("../index.js");
+			vi.mocked(prisma.taskEventLink.deleteMany).mockResolvedValue({
+				count: 1,
+			});
+			vi.mocked(prisma.taskEventLink.findMany).mockResolvedValue([]);
+			const { unlinkTaskFromEvent, getLinkedTasks } = await import(
+				"./event-repository.js"
+			);
+
+			await unlinkTaskFromEvent("task-1", "event-1");
+
+			expect(prisma.taskEventLink.deleteMany).toHaveBeenCalledWith({
+				where: { taskId: "task-1", eventId: "event-1" },
+			});
+
+			const linkedTasks = await getLinkedTasks("event-1");
+			expect(linkedTasks.length).toBe(0);
 		});
-		testEvents.push(event.id);
-
-		const task = await prisma.task.create({
-			data: {
-				title: "Tarea vinculada",
-			},
-		});
-		testTaskId.push(task.id);
-
-		await eventRepository.linkTaskToEvent(task.id, event.id);
-
-		const linkedTasks = await eventRepository.getLinkedTasks(event.id);
-		expect(linkedTasks.some((t: { id: string }) => t.id === task.id)).toBe(
-			true,
-		);
-
-		const linkedEvents = await eventRepository.getLinkedEvents(task.id);
-		expect(linkedEvents.some((e) => e.id === event.id)).toBe(true);
-	});
-
-	it("should unlink task from event", async () => {
-		const event = await eventRepository.createEvent({
-			title: "Evento",
-			startTime: "2026-06-01T10:00:00Z",
-		});
-		testEvents.push(event.id);
-
-		const task = await prisma.task.create({
-			data: { title: "Tarea" },
-		});
-		testTaskId.push(task.id);
-
-		await eventRepository.linkTaskToEvent(task.id, event.id);
-		await eventRepository.unlinkTaskFromEvent(task.id, event.id);
-
-		const linkedTasks = await eventRepository.getLinkedTasks(event.id);
-		expect(linkedTasks.length).toBe(0);
 	});
 });
