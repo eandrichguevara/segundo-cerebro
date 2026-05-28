@@ -134,7 +134,7 @@ Crear `backend/Dockerfile`:
 ```dockerfile
 # syntax=docker/dockerfile:1
 # Stage 1: build
-FROM node:20-slim AS builder
+FROM node:22-slim AS builder
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
@@ -150,7 +150,7 @@ COPY src/ ./src/
 RUN pnpm build
 
 # Stage 2: runtime
-FROM node:20-slim AS runner
+FROM node:22-slim AS runner
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
@@ -409,7 +409,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
           cache-dependency-path: backend/pnpm-lock.yaml
 

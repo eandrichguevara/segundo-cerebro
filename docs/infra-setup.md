@@ -102,9 +102,9 @@ sudo systemctl restart postgresql
 # Usar nvm para Node.js
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 source ~/.bashrc
-nvm install 20
-nvm use 20
-node -v   # Debe mostrar v20.x
+nvm install 22
+nvm use 22
+node -v   # Debe mostrar v22.x
 
 # pnpm via corepack
 corepack enable
