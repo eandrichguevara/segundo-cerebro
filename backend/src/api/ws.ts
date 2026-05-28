@@ -10,6 +10,7 @@ import { type ClientMessage, VALID_CLIENT_TYPES } from "../domain/message.js";
 import { LlmError, getFastResponse } from "../llm/fast-lane.js";
 import { FAST_LANE_SYSTEM_PROMPT } from "../llm/prompts/fast-lane-system.js";
 import { SttError, transcribeAudio } from "../llm/stt.js";
+import { formatForPrompt } from "../domain/quick-memory.js";
 
 type ConnectionState = {
 	authenticated: boolean;
@@ -341,10 +342,11 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 				});
 			}
 
-			const fastResponsePromise = getFastResponse(
-				userText,
-				FAST_LANE_SYSTEM_PROMPT,
-			);
+			const quickContext = formatForPrompt();
+			const fastLanePrompt = quickContext
+				? `${FAST_LANE_SYSTEM_PROMPT}\n\n${quickContext}`
+				: FAST_LANE_SYSTEM_PROMPT;
+			const fastResponsePromise = getFastResponse(userText, fastLanePrompt);
 
 			const timeoutMs = env.FAST_LANE_TIMEOUT_MS;
 			const timeoutPromise = new Promise<never>((_, reject) =>

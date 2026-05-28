@@ -26,40 +26,36 @@ describe("FAST_LANE_SYSTEM_PROMPT", () => {
 		expect(FAST_LANE_SYSTEM_PROMPT.length).toBeGreaterThan(100);
 	});
 
-	it("prohíbe explícitamente que el LLM niegue capacidades o acceso a datos", async () => {
+	it("prohíbe ejecutar lógica de negocio o modificar la BD", async () => {
 		const { FAST_LANE_SYSTEM_PROMPT } = await import(
 			"./prompts/fast-lane-system.js"
 		);
-		const prompt = FAST_LANE_SYSTEM_PROMPT.toLowerCase();
-		expect(
-			prompt.includes("no digas") &&
-				(prompt.includes("no guardo") || prompt.includes("no tengo acceso")),
-		).toBe(true);
+		expect(FAST_LANE_SYSTEM_PROMPT.toLowerCase()).toContain("no ejecutes");
 	});
 
-	it("contiene instrucciones de no responder consultas sobre datos", async () => {
+	it("permite responder preguntas usando contexto rápido", async () => {
 		const { FAST_LANE_SYSTEM_PROMPT } = await import(
 			"./prompts/fast-lane-system.js"
 		);
-		const prompt = FAST_LANE_SYSTEM_PROMPT.toLowerCase();
-		expect(
-			prompt.includes("no intentes responder") ||
-				prompt.includes("no te hagas cargo de la solicitud"),
-		).toBe(true);
+		expect(FAST_LANE_SYSTEM_PROMPT).toContain(
+			"Podes responder preguntas sencillas usando el contexto",
+		);
 	});
 
-	it("incluye ejemplos de lo que NO debe hacer", async () => {
+	it("prohíbe inventar información que no esté en el contexto", async () => {
 		const { FAST_LANE_SYSTEM_PROMPT } = await import(
 			"./prompts/fast-lane-system.js"
 		);
-		expect(FAST_LANE_SYSTEM_PROMPT).toContain("lo que NO debes hacer");
+		expect(FAST_LANE_SYSTEM_PROMPT).toContain("NO inventes información");
 	});
 
-	it("incluye ejemplos de respuestas dinámicas", async () => {
+	it("incluye ejemplos de respuestas con contexto", async () => {
 		const { FAST_LANE_SYSTEM_PROMPT } = await import(
 			"./prompts/fast-lane-system.js"
 		);
-		expect(FAST_LANE_SYSTEM_PROMPT).toContain("Voy a revisar tus tareas");
+		expect(FAST_LANE_SYSTEM_PROMPT).toContain(
+			"Tenes 3 tareas: revisar presupuesto",
+		);
 	});
 });
 

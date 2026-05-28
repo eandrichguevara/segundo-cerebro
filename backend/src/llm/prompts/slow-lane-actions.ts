@@ -131,4 +131,15 @@ Ejemplo:
     "list_id": "uuid-de-la-lista"
   }
 }
+
+### update_quick_memory
+Actualiza la memoria rápida de la vía rápida con los datos más recientes de la base de datos.
+Usá esta acción después de crear, modificar o eliminar datos relevantes (tareas, objetivos, listas, eventos).
+No requiere payload.
+
+Ejemplo:
+{
+  "action": "update_quick_memory",
+  "payload": {}
+}
 `.trim();

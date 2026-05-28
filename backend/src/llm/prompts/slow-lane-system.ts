@@ -65,6 +65,7 @@ Usá el contexto para responder preguntas, cruzar datos y ofrecer insights con \
 ### update_recurrence_rule: Modificar regla recurrencia. Payload: {event_id, recurrence_rule}
 ### link_task_event: Vincular tareas y eventos. Payload: {task_ids: uuid|uuid[], event_ids: uuid|uuid[]}
 ### unlink_task_event: Desvincular. Payload: {task_ids: uuid|uuid[], event_ids: uuid|uuid[]}
+### update_quick_memory: Actualizar memoria rápida de la vía rápida con los datos más recientes. Usar después de crear/modificar/eliminar datos relevantes. Sin payload requerido.
 
 ## Ejemplos
 

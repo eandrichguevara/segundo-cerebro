@@ -38,11 +38,11 @@ No cambiar estas decisiones sin actualizar este archivo.
 
 1. Audio del usuario capturado como `audio_chunk` (PCM 16-bit, 16kHz, mono) → servidor vía WebSocket.
 2. Servidor acumula chunks, al recibir `audio_end` envía el buffer completo a OpenAI Whisper API (`whisper-1`) para transcripción.
-3. Texto transcrito → OpenAI (modelo configurable via `OPENAI_FAST_MODEL`, default `gpt-5-nano`) para respuesta textual rápida.
+3. Texto transcrito → se inyecta **Quick Memory** (contexto resumido en < 700 tokens desde cache en RAM) + OpenAI (modelo configurable via `OPENAI_FAST_MODEL`, default `gpt-5-nano`) para respuesta textual rápida.
 4. Respuesta de texto enviada al cliente vía WebSocket (`text` + `audio_end` para cerrar el turno).
 5. Eventos (transcript) enviados por WebSocket de control.
 
-Objetivo: mantener conversación fluida, con respuesta en < 5 s. **Cero lógica de negocio**, cero escritura en base de datos (excepto `conversation_turns` y encolado de la vía lenta).
+Objetivo: mantener conversación fluida, con respuesta en < 5 s. **Sin escritura directa en base de datos** (excepto `conversation_turns` y encolado de la vía lenta). La vía rápida puede responder preguntas simples usando la Quick Memory sin depender de la vía lenta.
 
 **Vía lenta** (latencia < 30 s P95, SLA):
 
@@ -123,6 +123,62 @@ El backend dispara notificaciones push (FCM) para:
 - Informar de replanificaciones significativas.
 
 Los recordatorios programados se almacenan como jobs con `source: 'scheduled'` en la tabla `jobs`, con `run_at` configurado al momento del recordatorio.
+
+## Quick Memory (Cache en RAM)
+
+La Quick Memory es un cache en memoria del proceso que la vía rápida consulta para responder preguntas sin depender de la vía lenta. La actualiza la vía lenta mediante la acción `update_quick_memory`.
+
+### Estructura
+
+```typescript
+interface QuickMemoryData {
+	whoAmI: string;             // "Quién soy yo" auto-inferido de memorias
+	topData: {                  // Data más utilizada
+		tasks: string[];        // Top 5 tareas (por prioridad + vencimiento)
+		objectives: string[];   // Top 3 objetivos activos
+		lists: string[];        // Top 2 listas activas
+		events: string[];       // Top 5 eventos próximos (7 días)
+	};
+	todayContext: {             // Data que se está usando hoy
+		dueToday: string[];     // Tareas/eventos que vencen hoy
+		inProgress: string[];   // Tareas en progreso
+		recentMentions: string; // Última interacción significativa
+	};
+	recentTopics: string;       // Resumen temático de últimas consultas
+	updatedAt: Date;
+}
+```
+
+### Formato para el prompt de la vía rápida
+
+`formatForPrompt()` genera un string < 700 tokens (~2800 chars) con 4 secciones opcionales:
+
+1. **Quién soy**: identidad inferida de memorias con `interaction_type: preference_declaration`.
+2. **Data clave**: tareas (prioridad + vencimiento), objetivos, listas, eventos próximos.
+3. **Hoy**: tareas/eventos que vencen hoy, en progreso, mención reciente.
+4. **Temas recientes**: palabras clave extraídas de memorias recientes (frecuencia léxica).
+
+### Truncamiento
+
+Si el string excede 2800 chars, se descartan secciones en orden de prioridad:
+1. Temas recientes (primero)
+2. Hoy (segundo)
+3. Data clave y Quién soy (siempre preservados)
+
+### Actualización
+
+- La vía lenta genera la acción `update_quick_memory` cuando detecta que el contexto cambió significativamente (después de crear/modificar/eliminar datos).
+- El handler consulta BD en paralelo (tareas, objetivos, listas, eventos, memorias) y reconstruye las 4 secciones.
+- **whoAmI** se auto-infere de memorias con `interaction_type: preference_declaration`.
+- **recentTopics** extrae keywords por frecuencia léxica de las últimas 3 memorias.
+- No se actualiza automáticamente en cada job — solo cuando la vía lenta lo decide.
+
+### Ubicación del código
+
+- `backend/src/domain/quick-memory.ts` — singleton, get/update/formatForPrompt
+- `backend/src/workers/action-handlers.ts` — `handleUpdateQuickMemory()`
+- `backend/src/api/ws.ts` — inyección en `getFastResponse()`
+- `backend/src/llm/prompts/fast-lane-system.ts` — prompt con instrucciones para usar el contexto
 
 ## Job Queue (PostgreSQL)
 
@@ -1534,6 +1590,19 @@ Cada vez que se realice una modificación al proyecto (agregar funcionalidad, co
 - [x] `store_memory`
 - [x] Integración de embeddings en worker
 - [x] RAG: consulta top-K memorias por similitud
+
+#### Backend – Quick Memory (Cache en RAM)
+
+- [x] Módulo singleton en `domain/quick-memory.ts` (get/update/formatForPrompt)
+- [x] Acción `update_quick_memory` en vía lenta (handler + router)
+- [x] Inyección en prompt de vía rápida desde `ws.ts`
+- [x] Prompt de fast lane actualizado para usar el contexto
+- [x] `whoAmI` auto-inferido de memorias con preferencias
+- [x] `topData` con mix inteligente: tareas, objetivos, listas, eventos
+- [x] `todayContext` con lo que vence hoy + en progreso
+- [x] `recentTopics` con frecuencia léxica de últimas memorias
+- [x] Truncamiento a 700 tokens (~2800 chars) preservando secciones prioritarias
+- [x] Tests de formato y truncamiento
 
 #### Backend – Calendario (Eventos)
 

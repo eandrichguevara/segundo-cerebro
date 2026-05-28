@@ -4,6 +4,7 @@ import * as listRepository from "../db/repositories/list-repository.js";
 import * as memoryRepository from "../db/repositories/memory-repository.js";
 import * as objectiveRepository from "../db/repositories/objective-repository.js";
 import * as taskRepository from "../db/repositories/task-repository.js";
+import { update as updateQuickMemory } from "../domain/quick-memory.js";
 import {
 	EventStatus,
 	transitionStatus as transitionEventStatus,
@@ -1484,6 +1485,189 @@ export async function handleUnlinkTaskEvent(
 	});
 }
 
+function sortTasksByPriority(
+	tasks: Array<{ priority?: string; dueDate?: Date | null }>,
+): Array<{ priority?: string; dueDate?: Date | null }> {
+	const order: Record<string, number> = { high: 0, medium: 1, low: 2 };
+	return [...tasks].sort((a, b) => {
+		const pa = order[a.priority ?? "medium"] ?? 1;
+		const pb = order[b.priority ?? "medium"] ?? 1;
+		if (pa !== pb) return pa - pb;
+		if (a.dueDate && b.dueDate)
+			return a.dueDate.getTime() - b.dueDate.getTime();
+		if (a.dueDate) return -1;
+		if (b.dueDate) return 1;
+		return 0;
+	});
+}
+
+function buildWhoAmI(
+	memories: Array<{ content: string; metadata?: unknown }>,
+): string {
+	if (memories.length === 0) return "Usuario";
+
+	const preferences = memories.filter((m) => {
+		const meta = m.metadata as Record<string, unknown> | null;
+		return meta?.interaction_type === "preference_declaration";
+	});
+
+	if (preferences.length > 0) {
+		return preferences
+			.map((m) => m.content)
+			.join(". ")
+			.substring(0, 300);
+	}
+
+	const mostRecent = memories[0];
+	if (mostRecent && mostRecent.content && mostRecent.content.length < 200) {
+		return mostRecent.content;
+	}
+
+	return "Usuario";
+}
+
+function buildRecentTopics(
+	memories: Array<{ content: string }>,
+	_lastTurns: Array<{ content: string }>,
+): string {
+	const words = memories.flatMap((m) => m.content.toLowerCase().split(/\s+/));
+	const stopWords = new Set([
+		"el", "la", "los", "las", "un", "una", "y", "o", "de", "del",
+		"en", "con", "para", "por", "al", "que", "es", "se", "no", "lo",
+		"como", "más", "pero", "sus", "le", "ya", "este", "entre",
+		"porque", "cuando", "todo", "también", "fue", "era", "su",
+		"me", "te", "mi", "tu", "él", "ella", "nos", "les", "las",
+		"una", "dos", "muy", "sin", "sobre", "ha", "han", "has",
+		"hay", "sea", "sido", "está", "están", "ser", "haber",
+	]);
+
+	const freq = new Map<string, number>();
+	for (const w of words) {
+		const cleaned = w.replace(/[^a-záéíóúüñ]/g, "");
+		if (cleaned.length > 3 && !stopWords.has(cleaned)) {
+			freq.set(cleaned, (freq.get(cleaned) ?? 0) + 1);
+		}
+	}
+
+	const sorted = [...freq.entries()]
+		.sort((a, b) => b[1] - a[1])
+		.slice(0, 8)
+		.map(([word]) => word);
+
+	return sorted.length > 0 ? sorted.join(", ") : "";
+}
+
+export async function handleUpdateQuickMemory(
+	payload: Record<string, unknown>,
+	correlationId: string,
+): Promise<ActionResult> {
+	try {
+		const now = new Date();
+		const weekEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+		const [tasks, objectives, lists, events, memories] = await Promise.all([
+			taskRepository.getActiveTasks(),
+			objectiveRepository.getActiveObjectives(),
+			listRepository.getAllActive(),
+			eventRepository.getEventsByDateRange(now, weekEnd),
+			memoryRepository.getRecentMemories(5),
+		]);
+
+		const sortedTasks = sortTasksByPriority(
+			tasks as Array<{ priority?: string; dueDate?: Date | null }>,
+		);
+		const typedTasks = tasks as Array<{
+			title: string;
+			priority?: string;
+			dueDate?: Date | null;
+			status?: string;
+		}>;
+
+		const topTasks = sortedTasks
+			.slice(0, 5)
+			.map(
+				(t: { title?: string; priority?: string }) =>
+					`${t.title ?? ""} (${t.priority ?? "medium"})`,
+			);
+		const topObjectives = (
+			objectives as Array<{ title: string }>
+		)
+			.slice(0, 3)
+			.map((o) => o.title);
+		const topLists = (
+			lists as Array<{ title: string }>
+		)
+			.slice(0, 2)
+			.map((l) => l.title);
+		const topEvents = (
+			events as Array<{
+				title: string;
+				startTime: Date;
+			}>
+		)
+			.slice(0, 5)
+			.map((e) => {
+				const date = e.startTime.toLocaleDateString("es-AR", {
+					weekday: "short",
+					day: "numeric",
+					month: "short",
+				});
+				return `${e.title} (${date})`;
+			});
+
+		const todayStr = now.toDateString();
+		const dueToday = typedTasks.filter((t) => {
+			if (!t.dueDate) return false;
+			return t.dueDate.toDateString() === todayStr;
+		});
+
+		const inProgress = typedTasks.filter(
+			(t) => t.status === "in_progress",
+		);
+
+		const whoAmI = buildWhoAmI(
+			memories as Array<{ content: string; metadata?: unknown }>,
+		);
+
+		const typedMemories = memories as Array<{ content: string }>;
+
+		const recentTopics = buildRecentTopics(
+			typedMemories.length > 0 ? typedMemories.slice(0, 3) : [],
+			[],
+		);
+
+		updateQuickMemory({
+			whoAmI,
+			topData: {
+				tasks: topTasks,
+				objectives: topObjectives,
+				lists: topLists,
+				events: topEvents,
+			},
+			todayContext: {
+				dueToday: dueToday.map((t) => t.title),
+				inProgress: inProgress.map((t) => t.title),
+				recentMentions:
+					typedMemories.length > 0 && typedMemories[0] != null
+						? typedMemories[0].content.substring(0, 150)
+						: "",
+			},
+			recentTopics,
+			updatedAt: now,
+		});
+
+		return actionResult(true, "update_quick_memory", correlationId, {
+			updated_at: now.toISOString(),
+		});
+	} catch (error) {
+		logger.error({ error, correlationId }, "Error updating quick memory");
+		return actionResult(false, "update_quick_memory", correlationId, {
+			error: "INTERNAL_ERROR",
+			message: "Error al actualizar la memoria rápida",
+		});
+	}
+}
+
 export type ActionHandler = (
 	payload: Record<string, unknown>,
 	correlationId: string,
@@ -1492,6 +1676,7 @@ export type ActionHandler = (
 const ACTION_ROUTER: Record<string, ActionHandler> = {
 	respond: handleRespond,
 	query_list: handleQueryList,
+	update_quick_memory: handleUpdateQuickMemory,
 	create_task: handleCreateTask,
 	start_task: handleStartTask,
 	update_task: handleUpdateTask,

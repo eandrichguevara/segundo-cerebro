@@ -230,6 +230,9 @@ export function formatActionResponse(
 				: "No se pudieron desvincular tareas y eventos";
 		}
 
+		case "update_quick_memory":
+			return "Contexto actualizado";
+
 		default:
 			return "Listo, ya está hecho";
 	}
