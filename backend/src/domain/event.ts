@@ -124,7 +124,7 @@ export function generateRecurrenceInstances(
 	rangeEnd: Date,
 ): Array<{ start: Date; end: Date | undefined }> {
 	const instances: Array<{ start: Date; end: Date | undefined }> = [];
-	let current = new Date(startTime);
+	const current = new Date(startTime);
 	const durationMs = endTime
 		? endTime.getTime() - startTime.getTime()
 		: undefined;
@@ -158,15 +158,13 @@ export function generateRecurrenceInstances(
 					const currentDayIndex = sortedDays.indexOf(dayOfWeek);
 					const nextDay = sortedDays[currentDayIndex + 1];
 					if (nextDay !== undefined) {
-						current.setDate(
-							current.getDate() + (nextDay - dayOfWeek),
-						);
-				} else {
-					const firstDay = sortedDays[0] ?? 0;
-					const nextWeekOffset =
-						7 - dayOfWeek + firstDay + 7 * (rule.interval - 1);
-					current.setDate(current.getDate() + nextWeekOffset);
-				}
+						current.setDate(current.getDate() + (nextDay - dayOfWeek));
+					} else {
+						const firstDay = sortedDays[0] ?? 0;
+						const nextWeekOffset =
+							7 - dayOfWeek + firstDay + 7 * (rule.interval - 1);
+						current.setDate(current.getDate() + nextWeekOffset);
+					}
 				} else {
 					current.setDate(current.getDate() + 7 * rule.interval);
 				}

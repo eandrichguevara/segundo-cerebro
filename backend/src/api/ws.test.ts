@@ -39,10 +39,10 @@ vi.mock("../llm/prompts/fast-lane-system.js", () => ({
 }));
 
 function createMockSocket() {
-	const handlers: Record<string, Function> = {};
+	const handlers: Record<string, (...args: unknown[]) => void> = {};
 	return {
 		send: vi.fn(),
-		on: vi.fn((event: string, handler: Function) => {
+		on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
 			handlers[event] = handler;
 		}),
 		close: vi.fn(),
@@ -52,10 +52,14 @@ function createMockSocket() {
 }
 
 function createMockApp() {
-	let storedHandler: Function | null = null;
+	let storedHandler: ((...args: unknown[]) => void) | null = null;
 	return {
 		get: vi.fn(
-			(_path: string, _opts: Record<string, unknown>, handler: Function) => {
+			(
+				_path: string,
+				_opts: Record<string, unknown>,
+				handler: (...args: unknown[]) => void,
+			) => {
 				storedHandler = handler;
 			},
 		),
@@ -375,42 +379,46 @@ describe("WebSocket handler", () => {
 			expect(audioEndMsg).toBeDefined();
 		});
 
-		it("LLM timeout envía mensaje genérico y audio_end", { timeout: 10_000 }, async () => {
-			const { getFastResponse } = await import("../llm/fast-lane.js");
-			vi.mocked(getFastResponse).mockReturnValue(new Promise(() => {}));
+		it(
+			"LLM timeout envía mensaje genérico y audio_end",
+			{ timeout: 10_000 },
+			async () => {
+				const { getFastResponse } = await import("../llm/fast-lane.js");
+				vi.mocked(getFastResponse).mockReturnValue(new Promise(() => {}));
 
-			const { transcribeAudio } = await import("../llm/stt.js");
-			vi.mocked(transcribeAudio).mockResolvedValue({
-				ok: true,
-				value: "test",
-			});
+				const { transcribeAudio } = await import("../llm/stt.js");
+				vi.mocked(transcribeAudio).mockResolvedValue({
+					ok: true,
+					value: "test",
+				});
 
-			send({
-				version: "1",
-				type: "audio_chunk",
-				data: Buffer.from("fake-pcm-data").toString("base64"),
-			});
-			mockSocket.send.mockClear();
-			send({ version: "1", type: "audio_end" });
+				send({
+					version: "1",
+					type: "audio_chunk",
+					data: Buffer.from("fake-pcm-data").toString("base64"),
+				});
+				mockSocket.send.mockClear();
+				send({ version: "1", type: "audio_end" });
 
-			await new Promise((resolve) => setTimeout(resolve, 6000));
-			await new Promise((resolve) => setTimeout(resolve, 0));
+				await new Promise((resolve) => setTimeout(resolve, 6000));
+				await new Promise((resolve) => setTimeout(resolve, 0));
 
-			const messages = getMessages();
-			const textMsg = messages.find(
-				(m: unknown) => (m as Record<string, unknown>).type === "text",
-			);
-			expect(textMsg).toBeDefined();
-			expect((textMsg as Record<string, unknown>).content).toBe(
-				"Un momento, estoy procesando...",
-			);
+				const messages = getMessages();
+				const textMsg = messages.find(
+					(m: unknown) => (m as Record<string, unknown>).type === "text",
+				);
+				expect(textMsg).toBeDefined();
+				expect((textMsg as Record<string, unknown>).content).toBe(
+					"Un momento, estoy procesando...",
+				);
 
-			// Verify that audio_end is also sent to close the turn
-			const audioEndMsg = messages.find(
-				(m: unknown) => (m as Record<string, unknown>).type === "audio_end",
-			);
-			expect(audioEndMsg).toBeDefined();
-		});
+				// Verify that audio_end is also sent to close the turn
+				const audioEndMsg = messages.find(
+					(m: unknown) => (m as Record<string, unknown>).type === "audio_end",
+				);
+				expect(audioEndMsg).toBeDefined();
+			},
+		);
 
 		it("ignora mensaje audio_end duplicado por id", async () => {
 			const { transcribeAudio } = await import("../llm/stt.js");

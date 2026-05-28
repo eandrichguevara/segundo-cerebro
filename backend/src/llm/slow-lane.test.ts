@@ -77,7 +77,8 @@ describe("extractActions", () => {
 
 		await extractActions("revisá la lista del supermercado", {
 			systemPrompt: "test prompt",
-			activeLists: "- Lista del supermercado (shopping, id: abc-123)\n  - Tomates\n  - Lechuga",
+			activeLists:
+				"- Lista del supermercado (shopping, id: abc-123)\n  - Tomates\n  - Lechuga",
 		});
 
 		const messages = vi.mocked(openai.chat.completions.create).mock.calls[0][0]
@@ -89,7 +90,7 @@ describe("extractActions", () => {
 				m.content.includes("Lista del supermercado"),
 		);
 		expect(listContextMsg).toBeDefined();
-		expect(listContextMsg!.content).toContain("abc-123");
+		expect(listContextMsg?.content).toContain("abc-123");
 	});
 
 	it("funciona con contexto mínimo (solo systemPrompt)", async () => {

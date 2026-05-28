@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+	EventError,
 	EventStatus,
 	canTransition,
-	transitionStatus,
-	EventError,
-	validateRecurrenceRule,
-	validateCreateEvent,
 	generateRecurrenceInstances,
+	transitionStatus,
+	validateCreateEvent,
+	validateRecurrenceRule,
 } from "./event.js";
 
 describe("event state machine", () => {
@@ -19,24 +19,25 @@ describe("event state machine", () => {
 	});
 
 	it("should not allow completed -> anything", () => {
-		expect(canTransition(EventStatus.COMPLETED, EventStatus.ACTIVE)).toBe(false);
+		expect(canTransition(EventStatus.COMPLETED, EventStatus.ACTIVE)).toBe(
+			false,
+		);
 		expect(canTransition(EventStatus.COMPLETED, EventStatus.CANCELLED)).toBe(
 			false,
 		);
 	});
 
 	it("should not allow cancelled -> anything", () => {
-		expect(canTransition(EventStatus.CANCELLED, EventStatus.ACTIVE)).toBe(false);
+		expect(canTransition(EventStatus.CANCELLED, EventStatus.ACTIVE)).toBe(
+			false,
+		);
 		expect(canTransition(EventStatus.CANCELLED, EventStatus.COMPLETED)).toBe(
 			false,
 		);
 	});
 
 	it("should return error for invalid transition", () => {
-		const result = transitionStatus(
-			EventStatus.COMPLETED,
-			EventStatus.ACTIVE,
-		);
+		const result = transitionStatus(EventStatus.COMPLETED, EventStatus.ACTIVE);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
 			expect(result.error).toBe(EventError.INVALID_STATE_TRANSITION);
@@ -44,10 +45,7 @@ describe("event state machine", () => {
 	});
 
 	it("should succeed for valid transition", () => {
-		const result = transitionStatus(
-			EventStatus.ACTIVE,
-			EventStatus.COMPLETED,
-		);
+		const result = transitionStatus(EventStatus.ACTIVE, EventStatus.COMPLETED);
 		expect(result.ok).toBe(true);
 		if (result.ok) {
 			expect(result.value).toBe(EventStatus.COMPLETED);
@@ -219,9 +217,7 @@ describe("generateRecurrenceInstances", () => {
 		);
 
 		for (const inst of instances) {
-			expect(inst.start.getTime()).toBeGreaterThanOrEqual(
-				rangeStart.getTime(),
-			);
+			expect(inst.start.getTime()).toBeGreaterThanOrEqual(rangeStart.getTime());
 			expect(inst.start.getTime()).toBeLessThanOrEqual(rangeEnd.getTime());
 		}
 	});

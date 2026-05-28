@@ -35,7 +35,11 @@ vi.mock("../db/repositories/task-repository.js", () => ({
 }));
 
 vi.mock("../domain/list.js", () => ({
-	ListStatus: { ACTIVE: "active", COMPLETED: "completed", CANCELLED: "cancelled" },
+	ListStatus: {
+		ACTIVE: "active",
+		COMPLETED: "completed",
+		CANCELLED: "cancelled",
+	},
 	transitionStatus: vi.fn(),
 	validateCompleteList: vi.fn(),
 	validateItemIndex: vi.fn(),
@@ -43,12 +47,23 @@ vi.mock("../domain/list.js", () => ({
 }));
 
 vi.mock("../domain/objective.js", () => ({
-	ObjectiveStatus: { ACTIVE: "active", PAUSED: "paused", COMPLETED: "completed", CANCELLED: "cancelled" },
+	ObjectiveStatus: {
+		ACTIVE: "active",
+		PAUSED: "paused",
+		COMPLETED: "completed",
+		CANCELLED: "cancelled",
+	},
 	transitionStatus: vi.fn(),
 }));
 
 vi.mock("../domain/task.js", () => ({
-	TaskStatus: { PENDING: "pending", IN_PROGRESS: "in_progress", COMPLETED: "completed", POSTPONED: "postponed", CANCELLED: "cancelled" },
+	TaskStatus: {
+		PENDING: "pending",
+		IN_PROGRESS: "in_progress",
+		COMPLETED: "completed",
+		POSTPONED: "postponed",
+		CANCELLED: "cancelled",
+	},
 	transitionStatus: vi.fn(),
 }));
 
@@ -88,7 +103,9 @@ describe("handleQueryList", () => {
 
 		expect(result.ok).toBe(true);
 		expect(result.payload).toMatchObject({
-			lists: [{ id: "list-123", title: "Lista del supermercado", type: "shopping" }],
+			lists: [
+				{ id: "list-123", title: "Lista del supermercado", type: "shopping" },
+			],
 		});
 	});
 
@@ -115,7 +132,9 @@ describe("handleQueryList", () => {
 
 		expect(result.ok).toBe(true);
 		expect(result.payload).toMatchObject({
-			lists: [{ id: "list-123", title: "Lista del supermercado", type: "shopping" }],
+			lists: [
+				{ id: "list-123", title: "Lista del supermercado", type: "shopping" },
+			],
 		});
 	});
 
@@ -163,7 +182,10 @@ describe("handleQueryList", () => {
 		vi.mocked(listRepo.findActiveByTitle).mockResolvedValue([]);
 		const { handleQueryList } = await import("./action-handlers.js");
 
-		const result = await handleQueryList({ list_title: "ferretería" }, "corr-1");
+		const result = await handleQueryList(
+			{ list_title: "ferretería" },
+			"corr-1",
+		);
 
 		expect(result.ok).toBe(false);
 		expect(result.payload).toMatchObject({

@@ -1,4 +1,4 @@
-import { ConversationRole } from "@prisma/client";
+import type { ConversationRole } from "@prisma/client";
 
 import { prisma } from "../index.js";
 

@@ -329,11 +329,11 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 			);
 
 			if (state.sessionId) {
-			await addTurn({
-				sessionId: state.sessionId,
-				role: ConversationRole.user,
-				content: userText,
-			}).catch((error) => {
+				await addTurn({
+					sessionId: state.sessionId,
+					role: ConversationRole.user,
+					content: userText,
+				}).catch((error) => {
 					logger.error(
 						{ error, correlationId },
 						"Error guardando turno de usuario",
@@ -380,11 +380,11 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 				});
 
 				if (state.sessionId) {
-				await addTurn({
-					sessionId: state.sessionId,
-					role: ConversationRole.assistant,
-					content: fastResponse,
-				}).catch((error) => {
+					await addTurn({
+						sessionId: state.sessionId,
+						role: ConversationRole.assistant,
+						content: fastResponse,
+					}).catch((error) => {
 						logger.error(
 							{ error, correlationId },
 							"Error guardando turno assistant",

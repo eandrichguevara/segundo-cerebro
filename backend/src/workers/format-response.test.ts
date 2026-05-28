@@ -121,7 +121,9 @@ describe("formatActionResponse - task actions", () => {
 			title: "Revisar presupuesto",
 			priority: "high",
 		});
-		expect(result).toBe('Creé la tarea "Revisar presupuesto" con prioridad high');
+		expect(result).toBe(
+			'Creé la tarea "Revisar presupuesto" con prioridad high',
+		);
 	});
 
 	it("create_task solo título", () => {

@@ -75,24 +75,30 @@ export async function extractActions(
 
 		messages.push({ role: "user", content: text });
 
-		const completion = await openai.chat.completions.create({
-			model: env.OPENAI_SLOW_MODEL,
-			messages,
-			max_completion_tokens: env.SLOW_LANE_MAX_TOKENS,
-			temperature: 1,
-			response_format: { type: "json_object" },
-		}, { timeout: 30_000 });
+		const completion = await openai.chat.completions.create(
+			{
+				model: env.OPENAI_SLOW_MODEL,
+				messages,
+				max_completion_tokens: env.SLOW_LANE_MAX_TOKENS,
+				temperature: 1,
+				response_format: { type: "json_object" },
+			},
+			{ timeout: 30_000 },
+		);
 
 		const choice = completion.choices[0];
 		const content = choice?.message?.content;
 		if (!content || content.trim().length === 0) {
-			logger.warn({
-				finishReason: choice?.finish_reason,
-				model: completion.model,
-				usage: completion.usage,
-				choiceCount: completion.choices.length,
-				rawContent: content,
-			}, "Empty LLM response");
+			logger.warn(
+				{
+					finishReason: choice?.finish_reason,
+					model: completion.model,
+					usage: completion.usage,
+					choiceCount: completion.choices.length,
+					rawContent: content,
+				},
+				"Empty LLM response",
+			);
 			return err(LlmError.EMPTY_RESPONSE);
 		}
 
@@ -100,7 +106,10 @@ export async function extractActions(
 		try {
 			parsed = JSON.parse(content.trim()) as { actions?: Action[] };
 		} catch {
-			logger.debug({ rawContent: content }, "Failed to parse LLM response as JSON");
+			logger.debug(
+				{ rawContent: content },
+				"Failed to parse LLM response as JSON",
+			);
 			return err(LlmError.INVALID_JSON);
 		}
 
@@ -115,7 +124,10 @@ export async function extractActions(
 		return ok(parsed.actions);
 	} catch (error) {
 		const errMsg = error instanceof Error ? error.message : String(error);
-		logger.error({ error: errMsg }, "LLM action extraction failed with exception");
+		logger.error(
+			{ error: errMsg },
+			"LLM action extraction failed with exception",
+		);
 		const lowerMsg = errMsg.toLowerCase();
 		if (lowerMsg.includes("timeout") || lowerMsg.includes("timed out")) {
 			return err(LlmError.TIMEOUT);

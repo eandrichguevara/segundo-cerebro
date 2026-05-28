@@ -1,4 +1,8 @@
-export function formatActionResponse(action: string, ok: boolean, payload: Record<string, unknown>): string {
+export function formatActionResponse(
+	action: string,
+	ok: boolean,
+	payload: Record<string, unknown>,
+): string {
 	if (!ok) {
 		const message = (payload.message as string) ?? "algo salió mal";
 		return message;
@@ -12,21 +16,39 @@ export function formatActionResponse(action: string, ok: boolean, payload: Recor
 
 		case "query_list": {
 			const title = payload.title as string | undefined;
-			const items = payload.items as Array<{ content: string; quantity?: string }> | undefined;
-			const lists = payload.lists as Array<{ id: string; title: string; type: string; items: Array<{ content: string; quantity?: string; checked?: boolean }> }> | undefined;
+			const items = payload.items as
+				| Array<{ content: string; quantity?: string }>
+				| undefined;
+			const lists = payload.lists as
+				| Array<{
+						id: string;
+						title: string;
+						type: string;
+						items: Array<{
+							content: string;
+							quantity?: string;
+							checked?: boolean;
+						}>;
+				  }>
+				| undefined;
 			if (lists && !title) {
 				if (lists.length === 1) {
-					const l = lists[0]!;
+					const l = lists[0];
+					if (!l) return "Lista vacía";
 					const itemText = l.items
 						.map((i) => {
 							const checked = i.checked;
 							const prefix = checked ? "✓ " : "";
-							return i.quantity ? `${prefix}${i.content} (${i.quantity})` : `${prefix}${i.content}`;
+							return i.quantity
+								? `${prefix}${i.content} (${i.quantity})`
+								: `${prefix}${i.content}`;
 						})
 						.join(", ");
 					return `Tenés una lista: "${l.title}" con: ${itemText}`;
 				}
-				const listNames = lists.map((l) => `"${l.title}" (${l.type})`).join(", ");
+				const listNames = lists
+					.map((l) => `"${l.title}" (${l.type})`)
+					.join(", ");
 				return `Tenés ${lists.length} listas: ${listNames}`;
 			}
 			if (!title || !items) {
@@ -36,7 +58,9 @@ export function formatActionResponse(action: string, ok: boolean, payload: Recor
 				.map((i) => {
 					const checked = (i as Record<string, unknown>).checked;
 					const prefix = checked ? "✓ " : "";
-					return i.quantity ? `${prefix}${i.content} (${i.quantity})` : `${prefix}${i.content}`;
+					return i.quantity
+						? `${prefix}${i.content} (${i.quantity})`
+						: `${prefix}${i.content}`;
 				})
 				.join(", ");
 			return `En la lista "${title}" tenés: ${itemText}`;
@@ -82,12 +106,16 @@ export function formatActionResponse(action: string, ok: boolean, payload: Recor
 
 		case "update_task": {
 			const title = payload.title as string | undefined;
-			return title ? `Actualicé la tarea "${title}"` : "La tarea fue actualizada";
+			return title
+				? `Actualicé la tarea "${title}"`
+				: "La tarea fue actualizada";
 		}
 
 		case "complete_task": {
 			const title = payload.title as string | undefined;
-			return title ? `Marcé "${title}" como completada` : "La tarea fue marcada como completada";
+			return title
+				? `Marcé "${title}" como completada`
+				: "La tarea fue marcada como completada";
 		}
 
 		case "cancel_task":
@@ -97,7 +125,10 @@ export function formatActionResponse(action: string, ok: boolean, payload: Recor
 			const dueDate = payload.due_date as string | undefined;
 			if (dueDate) {
 				const date = new Date(dueDate);
-				const formatted = date.toLocaleDateString("es-AR", { day: "numeric", month: "long" });
+				const formatted = date.toLocaleDateString("es-AR", {
+					day: "numeric",
+					month: "long",
+				});
 				return `La tarea fue pospuesta para el ${formatted}`;
 			}
 			return "La tarea fue pospuesta";
@@ -110,7 +141,9 @@ export function formatActionResponse(action: string, ok: boolean, payload: Recor
 
 		case "update_objective": {
 			const title = payload.title as string | undefined;
-			return title ? `Actualicé el objetivo "${title}"` : "El objetivo fue actualizado";
+			return title
+				? `Actualicé el objetivo "${title}"`
+				: "El objetivo fue actualizado";
 		}
 
 		case "complete_objective":
@@ -151,9 +184,16 @@ export function formatActionResponse(action: string, ok: boolean, payload: Recor
 			return "El evento fue cancelado";
 
 		case "query_events": {
-			const events = payload.events as Array<{ title: string; start_time: string }> | undefined;
-			const recurring = payload.recurring_events as Array<{ title: string }> | undefined;
-			if ((!events || events.length === 0) && (!recurring || recurring.length === 0)) {
+			const events = payload.events as
+				| Array<{ title: string; start_time: string }>
+				| undefined;
+			const recurring = payload.recurring_events as
+				| Array<{ title: string }>
+				| undefined;
+			if (
+				(!events || events.length === 0) &&
+				(!recurring || recurring.length === 0)
+			) {
 				return "No tenés eventos en ese período";
 			}
 			const eventList = events?.length

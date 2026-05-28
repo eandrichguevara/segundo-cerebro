@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Prisma } from "@prisma/client";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../index.js", () => ({
 	prisma: {
@@ -81,13 +81,13 @@ describe("event repository", () => {
 					category: "trabajo",
 					startTime: new Date("2026-06-01T10:00:00Z"),
 					endTime: new Date("2026-06-01T11:00:00Z"),
-				recurrenceRule: Prisma.JsonNull,
-				parentId: null,
-				isException: false,
-				exceptionDate: null,
-			},
-		});
-		expect(result.title).toBe("Reunión de equipo");
+					recurrenceRule: Prisma.JsonNull,
+					parentId: null,
+					isException: false,
+					exceptionDate: null,
+				},
+			});
+			expect(result.title).toBe("Reunión de equipo");
 			expect(result.description).toBe("Revisión semanal");
 			expect(result.location).toBe("Sala A");
 			expect(result.category).toBe("trabajo");
@@ -150,9 +150,7 @@ describe("event repository", () => {
 			vi.mocked(prisma.event.findUnique).mockResolvedValue(null);
 			const { getEventById } = await import("./event-repository.js");
 
-			const result = await getEventById(
-				"00000000-0000-0000-0000-000000000000",
-			);
+			const result = await getEventById("00000000-0000-0000-0000-000000000000");
 
 			expect(result).toBeNull();
 		});
@@ -275,7 +273,12 @@ describe("event repository", () => {
 			const mockLink = { id: "link-1", taskId: "task-1", eventId: "event-1" };
 			vi.mocked(prisma.taskEventLink.create).mockResolvedValue(mockLink);
 			vi.mocked(prisma.taskEventLink.findMany).mockResolvedValue([
-				{ id: "link-1", taskId: "task-1", eventId: "event-1", task: { id: "task-1", title: "Tarea vinculada" } },
+				{
+					id: "link-1",
+					taskId: "task-1",
+					eventId: "event-1",
+					task: { id: "task-1", title: "Tarea vinculada" },
+				},
 			]);
 			const { linkTaskToEvent, getLinkedTasks } = await import(
 				"./event-repository.js"

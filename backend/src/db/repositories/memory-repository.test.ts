@@ -66,7 +66,8 @@ describe("memory-repository", () => {
 
 			await createMemory({ content: "Test" });
 
-			const query = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0][0] as string;
+			const query = vi.mocked(prisma.$queryRawUnsafe).mock
+				.calls[0][0] as string;
 			expect(query).toContain('AS "createdAt"');
 			expect(query).toContain('AS "updatedAt"');
 		});
@@ -150,9 +151,10 @@ describe("memory-repository", () => {
 
 			await getRelevantMemories([0.1, 0.2, 0.3], 5);
 
-			const query = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0][0] as string;
-			expect(query).toContain("AS \"createdAt\"");
-			expect(query).toContain("AS \"updatedAt\"");
+			const query = vi.mocked(prisma.$queryRawUnsafe).mock
+				.calls[0][0] as string;
+			expect(query).toContain('AS "createdAt"');
+			expect(query).toContain('AS "updatedAt"');
 			expect(query).not.toContain("SELECT id, content, embedding");
 		});
 	});

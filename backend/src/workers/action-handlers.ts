@@ -107,7 +107,13 @@ export async function handleQueryList(
 		}
 
 		if (matches.length === 1) {
-			const match = matches[0]!;
+			const match = matches[0];
+			if (!match) {
+				return actionResult(false, "query_list", correlationId, {
+					error: "LIST_NOT_FOUND",
+					message: "No se pudo obtener la lista",
+				});
+			}
 			return actionResult(true, "query_list", correlationId, {
 				id: match.id,
 				title: match.title,
@@ -1214,8 +1220,11 @@ export async function handleQueryEvents(
 	payload: Record<string, unknown>,
 	correlationId: string,
 ): Promise<ActionResult> {
-	const startDate = (payload.start_date as string | undefined) ?? new Date().toISOString();
-	const endDate = (payload.end_date as string | undefined) ?? new Date(new Date().getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+	const startDate =
+		(payload.start_date as string | undefined) ?? new Date().toISOString();
+	const endDate =
+		(payload.end_date as string | undefined) ??
+		new Date(new Date().getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
 	try {
 		const events = await eventRepository.getEventsByDateRange(
@@ -1224,7 +1233,10 @@ export async function handleQueryEvents(
 		);
 
 		const recurringEvents = await eventRepository.getRecurringEvents();
-		const allExceptions: Array<{ parentId: string; event: Record<string, unknown> }> = [];
+		const allExceptions: Array<{
+			parentId: string;
+			event: Record<string, unknown>;
+		}> = [];
 
 		for (const re of recurringEvents) {
 			const exceptions = await eventRepository.getEventExceptions(re.id);
@@ -1379,7 +1391,10 @@ export async function handleUpdateRecurrenceRule(
 		}
 
 		const updated = await eventRepository.updateEvent(eventId, {
-			recurrenceRule: ruleValidation.value as unknown as Record<string, unknown>,
+			recurrenceRule: ruleValidation.value as unknown as Record<
+				string,
+				unknown
+			>,
 		});
 
 		return actionResult(true, "update_recurrence_rule", correlationId, {

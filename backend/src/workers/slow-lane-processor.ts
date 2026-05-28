@@ -201,7 +201,8 @@ async function processJob(): Promise<void> {
 					sendToSession(sessionId, {
 						version: "1",
 						type: "text",
-						content: "Hubo un problema al procesar tu mensaje. Podés intentarlo de nuevo.",
+						content:
+							"Hubo un problema al procesar tu mensaje. Podés intentarlo de nuevo.",
 						correlation_id: correlationId,
 					});
 				}
@@ -228,7 +229,10 @@ async function processJob(): Promise<void> {
 		const failedIndices = new Set<number>();
 
 		for (const [i, actionDef] of actions.entries()) {
-			if (actionDef.depends_on !== undefined && failedIndices.has(actionDef.depends_on)) {
+			if (
+				actionDef.depends_on !== undefined &&
+				failedIndices.has(actionDef.depends_on)
+			) {
 				actionResults.push({
 					ok: false,
 					action: actionDef.action,
@@ -346,7 +350,8 @@ async function processJob(): Promise<void> {
 				sendToSession(sessionId, {
 					version: "1",
 					type: "text",
-					content: "Hubo un problema al procesar tu mensaje. Podés intentarlo de nuevo.",
+					content:
+						"Hubo un problema al procesar tu mensaje. Podés intentarlo de nuevo.",
 					correlation_id: correlationId,
 				});
 			}
