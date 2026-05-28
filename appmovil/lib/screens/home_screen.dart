@@ -22,7 +22,7 @@ class _HomeScreenState extends State<HomeScreen> {
   WsConnectionState _connectionState = WsConnectionState.disconnected;
   AudioServiceState _audioState = AudioServiceState.idle;
   String? _lastError;
-  String? _lastResponseText;
+  final List<String> _responseMessages = [];
   bool _isProcessing = false;
 
   @override
@@ -41,10 +41,10 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           _audioState = state;
         });
-        // Clear response text when starting a new recording
+        // Clear responses when starting a new recording
         if (state == AudioServiceState.recording) {
           setState(() {
-            _lastResponseText = null;
+            _responseMessages.clear();
           });
         }
       }
@@ -70,7 +70,8 @@ class _HomeScreenState extends State<HomeScreen> {
     widget.wsService.textStream.listen((text) {
       if (mounted) {
         setState(() {
-          _lastResponseText = text;
+          if (text == 'Buscando...') return;
+          _responseMessages.add(text);
         });
       }
     });
@@ -219,48 +220,59 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                           const SizedBox(height: 32),
-                          // Response text display
-                          if (_lastResponseText != null)
+                          // Response messages list
+                          if (_responseMessages.isNotEmpty)
                             Container(
                               margin: const EdgeInsets.symmetric(
                                 horizontal: 32,
                               ),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: _responseMessages.map((msg) {
+                                  return Container(
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    padding: const EdgeInsets.all(14),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      msg,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        height: 1.4,
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ),
+                          // Processing indicator
+                          if (_isProcessing)
+                            Padding(
+                              padding: EdgeInsets.only(
+                                top: _responseMessages.isNotEmpty ? 4 : 32,
                               ),
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Flexible(
-                                    child: Text(
-                                      _lastResponseText!,
-                                      style: TextStyle(
-                                        color: _isProcessing
-                                            ? Colors.white.withValues(
-                                                alpha: 0.7,
-                                              )
-                                            : Colors.white,
-                                        fontSize: 18,
-                                        height: 1.4,
-                                      ),
-                                      textAlign: TextAlign.center,
+                                  SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white.withValues(alpha: 0.5),
                                     ),
                                   ),
-                                  if (_isProcessing) ...[
-                                    const SizedBox(width: 12),
-                                    SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white.withValues(
-                                          alpha: 0.7,
-                                        ),
-                                      ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Procesando...',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.5),
+                                      fontSize: 14,
                                     ),
-                                  ],
+                                  ),
                                 ],
                               ),
                             ),
