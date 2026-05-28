@@ -22,8 +22,7 @@ class AppConfig {
   }
 
   static String get authToken {
-    // Fallback hardcoded para testing (quitar en producción)
-    _authToken ??= dotenv.env['AUTH_TOKEN'] ?? r'E8rdQ^!l$T$PI0CZpQDW^Dax7F$HYNsA';
+    _authToken ??= dotenv.env['AUTH_TOKEN'] ?? '';
     return _authToken!;
   }
 

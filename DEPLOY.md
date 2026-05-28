@@ -540,11 +540,11 @@ El repo en GitHub solo contiene `backend/`. Los archivos de deploy (`docker-comp
 
 ```bash
 # Asegurarse que el directorio existe en el servidor
-ssh ubuntu@148.116.110.205 "mkdir -p /home/ubuntu/segundo-cerebro/nginx"
+ssh ubuntu@<SERVER_IP> "mkdir -p /home/ubuntu/segundo-cerebro/nginx"
 
 # Subir archivos de deploy
-scp deploy/docker-compose.prod.yml ubuntu@148.116.110.205:/home/ubuntu/segundo-cerebro/
-scp deploy/nginx/segundo-cerebro.conf ubuntu@148.116.110.205:/home/ubuntu/segundo-cerebro/nginx/
+scp deploy/docker-compose.prod.yml ubuntu@<SERVER_IP>:/home/ubuntu/segundo-cerebro/
+scp deploy/nginx/segundo-cerebro.conf ubuntu@<SERVER_IP>:/home/ubuntu/segundo-cerebro/nginx/
 ```
 
 ### 8.3 En el servidor OCI
@@ -675,7 +675,7 @@ flutter install
 
 ```bash
 # En el servidor OCI
-ssh ubuntu@<IP>
+ssh ubuntu@<SERVER_IP>
 
 cd /home/ubuntu/segundo-cerebro
 docker compose -f docker-compose.prod.yml logs backend  # Ver qué tag tiró error
@@ -761,7 +761,7 @@ nano /home/ubuntu/segundo-cerebro/fcm-service-account.json
 ```bash
 # 1. Verificar que los secrets están configurados en GitHub
 # 2. Verificar que la clave SSH es válida
-ssh -i ~/.ssh/id_rsa ubuntu@<IP>  # debe conectar sin passphrase
+ssh -i ~/.ssh/id_rsa ubuntu@<SERVER_IP>  # debe conectar sin passphrase
 # 3. Verificar que Docker está corriendo en el servidor
 # 4. Verificar permisos del directorio
 ls -la /home/ubuntu/segundo-cerebro/
