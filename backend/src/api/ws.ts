@@ -1,0 +1,429 @@
+import { ConversationRole } from "@prisma/client";
+import type { FastifyInstance } from "fastify";
+import type { WebSocket } from "ws";
+import { env } from "../config/env.js";
+import { logger } from "../config/logger.js";
+import { addTurn } from "../db/repositories/conversation-repository.js";
+import * as deviceRepository from "../db/repositories/device-repository.js";
+import { enqueueJob } from "../db/repositories/job-repository.js";
+import { type ClientMessage, VALID_CLIENT_TYPES } from "../domain/message.js";
+import { LlmError, getFastResponse } from "../llm/fast-lane.js";
+import { FAST_LANE_SYSTEM_PROMPT } from "../llm/prompts/fast-lane-system.js";
+import { SttError, transcribeAudio } from "../llm/stt.js";
+
+type ConnectionState = {
+	authenticated: boolean;
+	sessionId: string | null;
+	audioFormat: "mp3" | "pcm" | null;
+	socket: WebSocket;
+	audioBuffer: Buffer[];
+	lastMessageTime: number;
+	idleTimer: ReturnType<typeof setTimeout> | null;
+};
+
+const connections = new Map<string, ConnectionState>();
+
+function getSessionState(sessionId: string): ConnectionState | undefined {
+	for (const state of connections.values()) {
+		if (state.sessionId === sessionId) return state;
+	}
+	return undefined;
+}
+
+export function sendToSession(
+	sessionId: string,
+	msg: Record<string, unknown>,
+): boolean {
+	const state = getSessionState(sessionId);
+	if (!state) return false;
+	try {
+		state.socket.send(JSON.stringify(msg));
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+const idCache = new Map<string, { result: unknown; timestamp: number }>();
+let idCacheAccessCount = 0;
+function cleanIdCache(): void {
+	if (idCache.size > env.ID_CACHE_SIZE) {
+		const entries = [...idCache.entries()];
+		entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+		const toRemove = entries.slice(
+			0,
+			entries.length - Math.floor(env.ID_CACHE_SIZE * 0.8),
+		);
+		for (const [key] of toRemove) {
+			idCache.delete(key);
+		}
+	}
+	idCacheAccessCount++;
+	if (idCacheAccessCount >= 100) {
+		idCacheAccessCount = 0;
+		for (const [key, value] of idCache.entries()) {
+			if (Date.now() - value.timestamp > env.ID_CACHE_TTL_MS) {
+				idCache.delete(key);
+			}
+		}
+	}
+}
+
+function checkIdempotency(id: string): boolean {
+	if (idCache.has(id)) {
+		return true;
+	}
+	idCache.set(id, { result: null, timestamp: Date.now() });
+	cleanIdCache();
+	return false;
+}
+
+function getRateLimitKey(sessionId: string, type: string): string {
+	return `${sessionId}:${type}`;
+}
+
+const rateLimitCounts = new Map<string, { count: number; resetAt: number }>();
+function checkRateLimit(sessionId: string, type: string): boolean {
+	const key = getRateLimitKey(sessionId, type);
+	const now = Date.now();
+	const entry = rateLimitCounts.get(key);
+	if (!entry || now > entry.resetAt) {
+		rateLimitCounts.set(key, { count: 1, resetAt: now + 1000 });
+		return true;
+	}
+	if (type === "audio_chunk" && entry.count >= env.RATE_LIMIT_AUDIO) {
+		return false;
+	}
+	if (type !== "audio_chunk" && entry.count >= env.RATE_LIMIT_OTHER) {
+		return false;
+	}
+	entry.count++;
+	return true;
+}
+
+function encodePcmToWav(pcmBuffer: Buffer): Buffer {
+	const sampleRate = 16000;
+	const bitsPerSample = 16;
+	const numChannels = 1;
+	const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+	const blockAlign = numChannels * (bitsPerSample / 8);
+	const dataSize = pcmBuffer.length;
+	const headerSize = 44;
+	const totalSize = headerSize + dataSize;
+
+	const wav = Buffer.alloc(totalSize);
+	wav.write("RIFF", 0);
+	wav.writeUInt32LE(totalSize - 8, 4);
+	wav.write("WAVE", 8);
+	wav.write("fmt ", 12);
+	wav.writeUInt32LE(16, 16);
+	wav.writeUInt16LE(1, 20);
+	wav.writeUInt16LE(numChannels, 22);
+	wav.writeUInt32LE(sampleRate, 24);
+	wav.writeUInt32LE(byteRate, 28);
+	wav.writeUInt16LE(blockAlign, 32);
+	wav.writeUInt16LE(bitsPerSample, 34);
+	wav.write("data", 36);
+	wav.writeUInt32LE(dataSize, 40);
+	pcmBuffer.copy(wav, 44);
+	return wav;
+}
+
+function generateId(): string {
+	return crypto.randomUUID();
+}
+
+export async function wsRoutes(app: FastifyInstance): Promise<void> {
+	app.get("/ws", { websocket: true }, (socket: WebSocket, req) => {
+		const connectionId = generateId();
+		const state: ConnectionState = {
+			authenticated: false,
+			sessionId: null,
+			audioFormat: null,
+			socket,
+			audioBuffer: [],
+			lastMessageTime: Date.now(),
+			idleTimer: null,
+		};
+		connections.set(connectionId, state);
+
+		function resetIdleTimer(): void {
+			if (state.idleTimer) clearTimeout(state.idleTimer);
+			state.idleTimer = setTimeout(() => {
+				logger.info(
+					{ sessionId: state.sessionId },
+					"Idle timeout, closing connection",
+				);
+				socket.close();
+			}, env.WS_IDLE_TIMEOUT_MS);
+		}
+
+		resetIdleTimer();
+
+		function sendJson(msg: Record<string, unknown>): void {
+			try {
+				socket.send(JSON.stringify(msg));
+			} catch (error) {
+				logger.error(
+					{ error, sessionId: state.sessionId },
+					"Error sending WS message",
+				);
+			}
+		}
+
+		function sendError(
+			code: string,
+			message: string,
+			correlationId?: string,
+		): void {
+			sendJson({
+				version: "1",
+				type: "error",
+				code,
+				message,
+				...(correlationId ? { correlation_id: correlationId } : {}),
+			});
+		}
+
+		socket.on("message", async (raw: Buffer) => {
+			let msg: ClientMessage;
+			try {
+				const parsed = JSON.parse(raw.toString("utf-8"));
+				if (
+					typeof parsed !== "object" ||
+					parsed === null ||
+					typeof parsed.type !== "string"
+				) {
+					sendError("INVALID_MESSAGE", "Formato inválido");
+					return;
+				}
+				if (!VALID_CLIENT_TYPES.has(parsed.type)) {
+					sendError(
+						"INVALID_MESSAGE",
+						`Tipo de mensaje desconocido: ${parsed.type}`,
+					);
+					return;
+				}
+				msg = parsed as ClientMessage;
+			} catch {
+				sendError("INVALID_MESSAGE", "Formato JSON inválido");
+				return;
+			}
+
+			state.lastMessageTime = Date.now();
+			resetIdleTimer();
+
+			if (!state.authenticated) {
+				if (msg.type !== "auth") {
+					sendError("AUTH_FAILED", "Debe autenticarse primero con auth");
+					return;
+				}
+				await handleAuth(msg);
+				return;
+			}
+
+			if (!checkRateLimit(state.sessionId ?? connectionId, msg.type)) {
+				sendError("RATE_LIMITED", "Demasiados mensajes, intente de nuevo");
+				return;
+			}
+
+			if (msg.type === "audio_chunk") {
+				handleAudioChunk(msg);
+			} else if (msg.type === "audio_end") {
+				await handleAudioEnd(msg);
+			} else if (msg.type === "register_fcm_token") {
+				await handleRegisterFcmToken(msg);
+			}
+		});
+
+		socket.on("close", () => {
+			logger.info({ sessionId: state.sessionId }, "WebSocket desconectado");
+			if (state.idleTimer) clearTimeout(state.idleTimer);
+			connections.delete(connectionId);
+		});
+
+		async function handleAuth(msg: ClientMessage): Promise<void> {
+			if (msg.type !== "auth") return;
+			if (!app.verifyAuth(msg.token)) {
+				sendError("AUTH_FAILED", "Token inválido");
+				return;
+			}
+			state.authenticated = true;
+			state.sessionId = generateId();
+			state.audioFormat = msg.audio_format ?? "mp3";
+			const correlationId = msg.id;
+
+			sendJson({
+				version: "1",
+				type: "auth_ok",
+				session_id: state.sessionId,
+				audio_format: state.audioFormat,
+				...(correlationId ? { correlation_id: correlationId } : {}),
+			});
+			logger.info(
+				{ sessionId: state.sessionId, audioFormat: state.audioFormat },
+				"WebSocket autenticado",
+			);
+		}
+
+		async function handleAudioChunk(msg: ClientMessage): Promise<void> {
+			if (msg.type !== "audio_chunk") return;
+			try {
+				const chunk = Buffer.from(msg.data, "base64");
+				state.audioBuffer.push(chunk);
+			} catch {
+				sendError("INVALID_MESSAGE", "audio_chunk data inválido");
+			}
+		}
+
+		async function handleRegisterFcmToken(msg: ClientMessage): Promise<void> {
+			if (msg.type !== "register_fcm_token") return;
+			try {
+				await deviceRepository.upsertDevice(
+					msg.token,
+					msg.platform ?? "unknown",
+				);
+				logger.info({ sessionId: state.sessionId }, "FCM token registrado");
+			} catch (error) {
+				logger.error(
+					{ error, sessionId: state.sessionId },
+					"Error registrando FCM token",
+				);
+			}
+		}
+
+		async function handleAudioEnd(msg: ClientMessage): Promise<void> {
+			if (msg.type !== "audio_end") return;
+
+			const correlationId = msg.id ?? generateId();
+
+			if (msg.id && checkIdempotency(msg.id)) {
+				logger.warn({ id: msg.id }, "Mensaje duplicado ignorado");
+				return;
+			}
+
+			if (state.audioBuffer.length === 0) {
+				sendError("INVALID_MESSAGE", "No hay audio para procesar");
+				return;
+			}
+
+			const pcmBuffer = Buffer.concat(state.audioBuffer);
+			state.audioBuffer = [];
+
+			const wavBuffer = encodePcmToWav(pcmBuffer);
+
+			const transcribed = await transcribeAudio(wavBuffer);
+			if (!transcribed.ok) {
+				sendError(
+					"STT_ERROR",
+					"No se pudo transcribir el audio",
+					correlationId,
+				);
+				return;
+			}
+
+			const userText = transcribed.value;
+			logger.info(
+				{ correlationId, sessionId: state.sessionId, text: userText },
+				"Audio transcrito",
+			);
+
+			if (state.sessionId) {
+			await addTurn({
+				sessionId: state.sessionId,
+				role: ConversationRole.user,
+				content: userText,
+			}).catch((error) => {
+					logger.error(
+						{ error, correlationId },
+						"Error guardando turno de usuario",
+					);
+				});
+			}
+
+			const fastResponsePromise = getFastResponse(
+				userText,
+				FAST_LANE_SYSTEM_PROMPT,
+			);
+
+			const timeoutMs = env.FAST_LANE_TIMEOUT_MS;
+			const timeoutPromise = new Promise<never>((_, reject) =>
+				setTimeout(
+					() => reject(new DOMException("Timeout", "AbortError")),
+					timeoutMs,
+				),
+			);
+
+			const fastResult = await Promise.race([
+				fastResponsePromise,
+				timeoutPromise,
+			]).catch((error) => {
+				if (error instanceof DOMException && error.name === "AbortError") {
+					return { ok: false, error: LlmError.TIMEOUT } as const;
+				}
+				throw error;
+			});
+
+			if (fastResult.ok) {
+				const fastResponse = fastResult.value;
+				sendJson({
+					version: "1",
+					type: "text",
+					content: fastResponse,
+					correlation_id: correlationId,
+				});
+				// Signal turn completion so the client transitions out of processing.
+				sendJson({
+					version: "1",
+					type: "audio_end",
+					correlation_id: correlationId,
+				});
+
+				if (state.sessionId) {
+				await addTurn({
+					sessionId: state.sessionId,
+					role: ConversationRole.assistant,
+					content: fastResponse,
+				}).catch((error) => {
+						logger.error(
+							{ error, correlationId },
+							"Error guardando turno assistant",
+						);
+					});
+				}
+			} else {
+				sendJson({
+					version: "1",
+					type: "text",
+					content: "Un momento, estoy procesando...",
+					correlation_id: correlationId,
+				});
+				// Signal turn completion so the client can transition
+				// out of the processing state even though no audio follows.
+				sendJson({
+					version: "1",
+					type: "audio_end",
+					correlation_id: correlationId,
+				});
+			}
+
+			if (state.sessionId) {
+				try {
+					await enqueueJob({
+						correlationId,
+						sessionId: state.sessionId,
+						type: "process_message",
+						payload: {
+							transcribed_text: userText,
+							audio_format: state.audioFormat ?? "mp3",
+							received_at: new Date().toISOString(),
+						},
+					});
+					logger.info({ correlationId }, "Job encolado para vía lenta");
+				} catch (error) {
+					logger.error({ error, correlationId }, "Error encolando job");
+				}
+			}
+		}
+	});
+}
