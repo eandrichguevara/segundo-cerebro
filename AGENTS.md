@@ -1440,9 +1440,8 @@ Comandos del proyecto (`package.json` en `backend/`):
 | ---- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1    | **MVP**               | Conexión WebSocket, STT (Whisper), vía rápida (modelo configurable via `OPENAI_FAST_MODEL`), vía lenta (modelo configurable via `OPENAI_SLOW_MODEL`), CRUD básico de tareas y objetivos, Auth con token estático, cola PostgreSQL, conversación contextual con session_id. |
 | 2    | **Memoria**           | RAG con pgvector, notificaciones push (FCM), consolidación de memorias.                                                                                                                                                                                                    |
-| 3    | **Voz ultra-rápida + Clon** | Vosk on-device STT, Cartesia Sonic TTS con voice cloning, streaming TTS, VAD y barge-in.                                                                                                                                                           |
-| 4    | **Personal avanzado** | Inferencia de personalidad, métricas de uso, ajuste dinámico de prompts.                                                                                                                                                                                                   |
-| 5    | **Producción**        | Docker/OCI, CI/CD, monitoreo, escalar job queue a Graphile Worker/BullMQ.                                                                                                                                                                                                  |
+| 3    | **Personal avanzado** | Inferencia de personalidad, métricas de uso, ajuste dinámico de prompts.                                                                                                                                                                                                   |
+| 4    | **Producción**        | Docker/OCI, CI/CD, monitoreo, escalar job queue a Graphile Worker/BullMQ.                                                                                                                                                                                                  |
 
 Decisiones marcadas como "MVP" o "Fase 1" son temporales. Las invariantes de negocio (doble vía, voz‑first, mono‑usuario) son permanentes.
 
@@ -1707,107 +1706,6 @@ Cada vez que se realice una modificación al proyecto (agregar funcionalidad, co
 - [x] Tests de RAG
 
 ---
-
-### Voz ultra-rápida + Clon (En progreso)
-
-Plan para minimizar latencia de respuesta y añadir voz clonada del usuario.
-
-#### Análisis de latencia actual
-
-```
-FLUJO ACTUAL                  │ Latencia
-──────────────────────────────┼────────────────────
-Audio capture → upload (WS)   │ 0.5-2s (red + base64)
-Whisper API (STT)             │ 1-3s
-gpt-5-nano (fast lane)        │ 1-2s
-TTS (no integrado)            │ N/A
-Total                         │ 2.5-7s
-```
-
-| Bottleneck | Impacto | Solución | Ganancia |
-|---|---|---|---|
-| Whisper API | ~1-3s | Vosk on-device | -1-3s |
-| Audio upload | ~0.5-2s | Enviar solo texto | -0.5-2s |
-| TTS OpenAI (si se integra) | ~1-3s | Cartesia Sonic | -0.8-2.5s |
-| No streaming | espera completa | TTS streaming | -0.5-1s percibida |
-
-#### Arquitectura objetivo
-
-```
-NUEVO FLUJO                    │ Latencia
-──────────────────────────────┼────────────────────
-Vosk on-device STT (streaming) │ 0.3-0.8s
-Enviar texto por WS            │ ~0.05s
-gpt-5-nano (fast lane)         │ 1-2s
-Cartesia Sonic TTS (streaming) │ 0.1-0.3s (primer chunk)
-Total                          │ 1.5-3.5s
-```
-
-#### Fases de implementación
-
-**Fase 1: Vosk on-device STT** — elimina Whisper API + audio upload
-
-- [ ] Agregar `vosk_flutter_service: ^0.1.1` a `appmovil/pubspec.yaml`
-- [ ] Agregar modelo español `vosk-model-small-es-0.42` (~39MB) en `appmovil/assets/models/`
-- [ ] Crear `appmovil/lib/services/local_stt_service.dart` — singleton Vosk, stream de transcripción
-- [ ] Refactorizar `appmovil/lib/services/audio_service.dart` — enviar audio a Vosk local en vez de WS
-- [ ] Agregar nuevo tipo de mensaje `transcribed_text` al protocolo WebSocket
-- [ ] Crear `TranscribedTextMessage` en `appmovil/lib/models/ws_message.dart`
-- [ ] Agregar `'transcribed_text'` a `VALID_CLIENT_TYPES` en `backend/src/domain/message.ts`
-- [ ] Agregar handler `handleTranscribedText()` en `backend/src/api/ws.ts` — salta Whisper, procesa directo
-- [ ] Mantener `handleAudioEnd` como fallback para clientes legacy
-- [ ] Tests de Vosk local y nuevo handler WS
-
-**Fase 2: Cartesia Sonic TTS con voice cloning** — voz ultra-rápida + tu clon
-
-- [ ] Crear `backend/src/llm/cartesia-tts.ts` — integración Cartesia Sonic API
-- [ ] Agregar `TTS_PROVIDER`, `CARTESIA_API_KEY`, `CARTESIA_VOICE_ID` a `backend/src/config/env.ts`
-- [ ] Refactorizar `backend/src/llm/tts.ts` como wrapper con provider switch
-- [ ] Integrar TTS en vía rápida (`backend/src/api/ws.ts`) — después del fast lane, enviar audio
-- [ ] Implementar fallback: si TTS falla → enviar solo texto
-- [ ] Voice cloning: grabar 1-5 min de audio, crear clon en Cartesia Dashboard, configurar `CARTESIA_VOICE_ID`
-- [ ] Agregar `just_audio` a `appmovil/pubspec.yaml` para playback de TTS
-- [ ] Manejar `audio_chunk` + `audio_end` del servidor en `audio_service.dart` (playback)
-- [ ] Tests de integración Cartesia (mocks)
-
-**Fase 3: Streaming TTS** — reducir latencia percibida
-
-- [ ] Implementar TTS streaming vía WebSocket con Cartesia
-- [ ] Enviar chunks de audio al cliente a medida que se generan (sin esperar respuesta completa)
-- [ ] Primer chunk audible en ~150ms vs ~1-2s sin streaming
-- [ ] Tests de streaming
-
-**Fase 4: Conversación natural** — VAD + interrupciones
-
-- [ ] Implementar Voice Activity Detection (VAD) en Flutter — silencio >500ms → auto stop
-- [ ] Eliminar dependencia de tap-to-record (opcional: mantener como alternativa)
-- [ ] Implementar barge-in: si usuario habla mientras el agente responde, cancelar TTS y escuchar
-- [ ] Tests de VAD y barge-in
-
-#### Cambios por archivo
-
-| Archivo | Cambio | Fase |
-|---|---|---|
-| `appmovil/pubspec.yaml` | Agregar `vosk_flutter_service`, `just_audio` | 1, 2 |
-| `appmovil/assets/models/` | Agregar `vosk-model-small-es-0.42/` | 1 |
-| `appmovil/lib/services/local_stt_service.dart` | **Nuevo** — Vosk singleton | 1 |
-| `appmovil/lib/services/audio_service.dart` | Refactor: Vosk local + playback TTS + VAD | 1, 2, 4 |
-| `appmovil/lib/models/ws_message.dart` | Agregar `TranscribedTextMessage` | 1 |
-| `backend/src/config/env.ts` | Agregar vars Cartesia | 2 |
-| `backend/src/llm/cartesia-tts.ts` | **Nuevo** — Cartesia Sonic | 2 |
-| `backend/src/llm/tts.ts` | Wrapper con provider switch (openai/cartesia) | 2 |
-| `backend/src/api/ws.ts` | Handler `transcribed_text` + TTS en fast lane | 1, 2 |
-| `backend/src/domain/message.ts` | Nuevo tipo `transcribed_text` | 1 |
-
-#### Costo mensual
-
-| Concepto | Costo |
-|---|---|
-| Cartesia Pro (voice cloning + TTS) | $4/mo |
-| OpenAI (solo LLM, sin STT) | ~$1-2/mo |
-| Infra (OCI ARM) | $0 |
-| **Total** | **~$5-6/mo** |
-
 ---
 
 ### Fase 3 – Personal avanzado (Pendiente)
