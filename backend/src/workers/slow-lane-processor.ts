@@ -154,8 +154,11 @@ async function processJob(): Promise<void> {
 	}
 
 	try {
-		const transcribedText =
-			((payload as Record<string, unknown>)?.transcribed_text as string) ?? "";
+		const jobPayload = (payload as Record<string, unknown>) ?? {};
+		const transcribedText = (jobPayload.transcribed_text as string) ?? "";
+		const fastLaneResponse = jobPayload.fast_lane_response as
+			| string
+			| undefined;
 
 		const [
 			conversationTurns,
@@ -181,6 +184,7 @@ async function processJob(): Promise<void> {
 			activeTasks,
 			activeLists,
 			upcomingEvents,
+			fastLaneResponse,
 		});
 
 		if (!actionsResult.ok) {
@@ -215,6 +219,15 @@ async function processJob(): Promise<void> {
 					},
 					"Job reencolado para retry",
 				);
+				return; // Don't send audio_end — another worker attempt will handle it
+			}
+			// Send audio_end to release the client from processing state
+			if (sessionId) {
+				sendToSession(sessionId, {
+					version: "1",
+					type: "audio_end",
+					correlation_id: correlationId,
+				});
 			}
 			return;
 		}
@@ -285,6 +298,14 @@ async function processJob(): Promise<void> {
 			}
 		}
 
+		const respondResults = actionResults.filter(
+			(r) => r.action === "respond" && r.ok,
+		);
+		const otherResults = actionResults.filter(
+			(r) => !(r.action === "respond" && r.ok),
+		);
+
+		// Send action_result for ALL results (state tracking for client)
 		for (const result of actionResults) {
 			const wsMsg: Record<string, unknown> = {
 				version: "1",
@@ -295,35 +316,80 @@ async function processJob(): Promise<void> {
 				payload: result.payload,
 			};
 
-			const assistantText = formatActionResponse(
+			const fallbackText = formatActionResponse(
 				result.action,
 				result.ok,
 				result.payload,
 			);
 
-			if (sessionId) {
-				sendToSession(sessionId, {
-					version: "1",
-					type: "text",
-					content: assistantText,
-					correlation_id: result.correlationId,
-				});
-			}
-
 			await notifyUser(sessionId, wsMsg, {
 				title: result.ok ? "Acción completada" : "Error",
-				body: assistantText,
+				body: fallbackText,
 			});
+		}
 
-			await addTurn({
-				sessionId,
-				role: ConversationRole.assistant,
-				content: assistantText,
-			}).catch((error) => {
-				logger.error(
-					{ error, correlationId },
-					"Error guardando turno assistant",
+		// Send user-facing text — prefer respond.messages as granular chat
+		if (respondResults.length > 0) {
+			for (const rr of respondResults) {
+				const messages = (rr.payload.messages as string[]) ?? [];
+				for (const msg of messages) {
+					if (sessionId) {
+						sendToSession(sessionId, {
+							version: "1",
+							type: "text",
+							content: msg,
+							correlation_id: rr.correlationId,
+						});
+					}
+					await addTurn({
+						sessionId,
+						role: ConversationRole.assistant,
+						content: msg,
+					}).catch((error) => {
+						logger.error(
+							{ error, correlationId },
+							"Error guardando turno assistant",
+						);
+					});
+				}
+			}
+		} else {
+			// Fallback: send text for all non-respond actions (old behavior)
+			for (const result of otherResults) {
+				const assistantText = formatActionResponse(
+					result.action,
+					result.ok,
+					result.payload,
 				);
+
+				if (sessionId) {
+					sendToSession(sessionId, {
+						version: "1",
+						type: "text",
+						content: assistantText,
+						correlation_id: result.correlationId,
+					});
+				}
+
+				await addTurn({
+					sessionId,
+					role: ConversationRole.assistant,
+					content: assistantText,
+				}).catch((error) => {
+					logger.error(
+						{ error, correlationId },
+						"Error guardando turno assistant",
+					);
+				});
+			}
+		}
+
+		// Send audio_end to close the turn (client transitions from processing to idle)
+		if (sessionId) {
+			sendToSession(sessionId, {
+				version: "1",
+				type: "audio_end",
+				correlation_id: correlationId,
 			});
 		}
 
@@ -352,6 +418,11 @@ async function processJob(): Promise<void> {
 					type: "text",
 					content:
 						"Hubo un problema al procesar tu mensaje. Podés intentarlo de nuevo.",
+					correlation_id: correlationId,
+				});
+				sendToSession(sessionId, {
+					version: "1",
+					type: "audio_end",
 					correlation_id: correlationId,
 				});
 			}

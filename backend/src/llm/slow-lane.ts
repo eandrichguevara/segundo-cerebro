@@ -18,6 +18,7 @@ export interface SlowLaneContext {
 	activeTasks?: string;
 	activeLists?: string;
 	upcomingEvents?: string;
+	fastLaneResponse?: string;
 }
 
 export interface Action {
@@ -70,6 +71,12 @@ export async function extractActions(
 			messages.push({
 				role: "system",
 				content: `## Eventos próximos\n${context.upcomingEvents}`,
+			});
+		}
+		if (context.fastLaneResponse) {
+			messages.push({
+				role: "system",
+				content: `## Respuesta anterior (vía rápida)\nEl asistente ya respondió: "${context.fastLaneResponse}"\nTu respuesta debe COMPLEMENTAR lo que ya se dijo. No repitas información. Proveé detalles adicionales, confirmaciones de acciones, o información que añada valor a lo que ya se respondió.`,
 			});
 		}
 

@@ -96,17 +96,17 @@ class WebSocketService {
         break;
       case TextMessage msg:
         _textController.add(msg.content);
-        _processingController.add(false);
         break;
       case ProcessingMessage msg:
         _textController.add(msg.content);
         _processingController.add(true);
         break;
       case AudioChunkResponse():
+        break;
       case AudioEndResponse():
+        _processingController.add(false);
         break;
       case ActionResultMessage():
-        _processingController.add(false);
         break;
       case NotificationMessage msg:
         _textController.add('[${msg.level}] ${msg.message}');

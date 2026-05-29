@@ -267,7 +267,7 @@ describe("WebSocket handler", () => {
 			});
 			vi.mocked(getFastResponse).mockResolvedValue({
 				ok: true,
-				value: "hola cómo estás",
+				value: ["hola cómo estás"],
 			});
 
 			// Send valid audio_chunk then audio_end
@@ -293,6 +293,7 @@ describe("WebSocket handler", () => {
 					type: "process_message",
 					payload: expect.objectContaining({
 						transcribed_text: "hola",
+						fast_lane_response: "hola cómo estás",
 					}),
 				}),
 			);
@@ -306,10 +307,11 @@ describe("WebSocket handler", () => {
 				"hola cómo estás",
 			);
 
+			// audio_end is NOT sent by fast lane — slow lane sends it when done
 			const audioEndMsg = messages.find(
 				(m: unknown) => (m as Record<string, unknown>).type === "audio_end",
 			);
-			expect(audioEndMsg).toBeDefined();
+			expect(audioEndMsg).toBeUndefined();
 		});
 
 		it("STT falla y envía STT_ERROR", async () => {
@@ -336,7 +338,7 @@ describe("WebSocket handler", () => {
 			});
 		});
 
-		it("envía solo texto con audio_end de cierre de turno (sin audio)", async () => {
+		it("envía solo texto sin audio_end (fast lane no cierra el turno)", async () => {
 			const { transcribeAudio } = await import("../llm/stt.js");
 			const { getFastResponse } = await import("../llm/fast-lane.js");
 
@@ -346,7 +348,7 @@ describe("WebSocket handler", () => {
 			});
 			vi.mocked(getFastResponse).mockResolvedValue({
 				ok: true,
-				value: "respuesta sin audio",
+				value: ["respuesta sin audio"],
 			});
 
 			send({
@@ -373,14 +375,15 @@ describe("WebSocket handler", () => {
 			);
 			expect(audioChunks.length).toBe(0);
 
+			// NO audio_end from fast lane — slow lane sends it
 			const audioEndMsg = messages.find(
 				(m: unknown) => (m as Record<string, unknown>).type === "audio_end",
 			);
-			expect(audioEndMsg).toBeDefined();
+			expect(audioEndMsg).toBeUndefined();
 		});
 
 		it(
-			"LLM timeout envía mensaje genérico y audio_end",
+			"LLM timeout envía mensaje genérico sin audio_end",
 			{ timeout: 10_000 },
 			async () => {
 				const { getFastResponse } = await import("../llm/fast-lane.js");
@@ -412,11 +415,11 @@ describe("WebSocket handler", () => {
 					"Un momento, estoy procesando...",
 				);
 
-				// Verify that audio_end is also sent to close the turn
+				// NO audio_end from fast lane on timeout — slow lane will send it
 				const audioEndMsg = messages.find(
 					(m: unknown) => (m as Record<string, unknown>).type === "audio_end",
 				);
-				expect(audioEndMsg).toBeDefined();
+				expect(audioEndMsg).toBeUndefined();
 			},
 		);
 
@@ -429,7 +432,7 @@ describe("WebSocket handler", () => {
 			const { getFastResponse } = await import("../llm/fast-lane.js");
 			vi.mocked(getFastResponse).mockResolvedValue({
 				ok: true,
-				value: "ok",
+				value: ["ok"],
 			});
 			const { logger } = await import("../config/logger.js");
 

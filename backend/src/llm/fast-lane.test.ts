@@ -51,13 +51,12 @@ describe("FAST_LANE_SYSTEM_PROMPT", () => {
 		expect(FAST_LANE_SYSTEM_PROMPT).toContain("NO inventes información");
 	});
 
-	it("incluye ejemplos de respuestas con contexto", async () => {
+	it("incluye ejemplos de respuestas con contexto en formato JSON array", async () => {
 		const { FAST_LANE_SYSTEM_PROMPT } = await import(
 			"./prompts/fast-lane-system.js"
 		);
-		expect(FAST_LANE_SYSTEM_PROMPT).toContain(
-			"Tenes 3 tareas pendientes: revisar presupuesto",
-		);
+		expect(FAST_LANE_SYSTEM_PROMPT).toContain("Tenes 3 tareas pendientes.");
+		expect(FAST_LANE_SYSTEM_PROMPT).toContain('["Tenes 3 tareas pendientes.');
 	});
 
 	it("incluye instrucciones para reconocer info personal (nombre, preferencias)", async () => {
@@ -103,7 +102,7 @@ describe("getFastResponse", () => {
 		vi.clearAllMocks();
 	});
 
-	it("retorna la respuesta del LLM exitosamente", async () => {
+	it("retorna la respuesta del LLM exitosamente como array", async () => {
 		const { openai } = await import("./client.js");
 		vi.mocked(openai.chat.completions.create).mockResolvedValue({
 			choices: [{ message: { content: "Respuesta rápida" } }],
@@ -112,7 +111,12 @@ describe("getFastResponse", () => {
 
 		const result = await getFastResponse("Hola", "Eres un asistente útil.");
 
-		expect(result).toEqual({ ok: true, value: "Respuesta rápida" });
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(Array.isArray(result.value)).toBe(true);
+			expect(result.value.length).toBeGreaterThan(0);
+			expect(result.value[0]).toBe("Respuesta rápida");
+		}
 	});
 
 	it("retorna EMPTY_RESPONSE cuando la respuesta está vacía", async () => {

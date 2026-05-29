@@ -10,6 +10,10 @@ export function formatActionResponse(
 
 	switch (action) {
 		case "respond": {
+			const messages = payload.messages as string[] | undefined;
+			if (messages && Array.isArray(messages) && messages.length > 0) {
+				return messages.join("\n");
+			}
 			const text = payload.text as string | undefined;
 			return text ?? "Entendido";
 		}

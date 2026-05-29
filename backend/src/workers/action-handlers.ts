@@ -4,7 +4,6 @@ import * as listRepository from "../db/repositories/list-repository.js";
 import * as memoryRepository from "../db/repositories/memory-repository.js";
 import * as objectiveRepository from "../db/repositories/objective-repository.js";
 import * as taskRepository from "../db/repositories/task-repository.js";
-import { update as updateQuickMemory } from "../domain/quick-memory.js";
 import {
 	EventStatus,
 	transitionStatus as transitionEventStatus,
@@ -23,6 +22,7 @@ import {
 	ObjectiveStatus,
 	transitionStatus as transitionObjectiveStatus,
 } from "../domain/objective.js";
+import { update as updateQuickMemory } from "../domain/quick-memory.js";
 import {
 	TaskStatus,
 	transitionStatus as transitionTaskStatus,
@@ -54,14 +54,21 @@ export async function handleRespond(
 	payload: Record<string, unknown>,
 	correlationId: string,
 ): Promise<ActionResult> {
-	const text = (payload.text as string | undefined)?.trim();
-	if (!text || text.length === 0) {
+	const messages = payload.messages as Array<unknown> | undefined;
+	if (!Array.isArray(messages) || messages.length === 0) {
 		return actionResult(false, "respond", correlationId, {
 			error: "MISSING_REQUIRED_FIELD",
-			message: "text es requerido",
+			message: "messages es requerido (array de strings)",
 		});
 	}
-	return actionResult(true, "respond", correlationId, { text });
+	const trimmed = messages.map((m) => String(m).trim()).filter(Boolean);
+	if (trimmed.length === 0) {
+		return actionResult(false, "respond", correlationId, {
+			error: "MISSING_REQUIRED_FIELD",
+			message: "messages debe contener al menos un string no vacío",
+		});
+	}
+	return actionResult(true, "respond", correlationId, { messages: trimmed });
 }
 
 export async function handleQueryList(
@@ -1519,7 +1526,7 @@ function buildWhoAmI(
 	}
 
 	const mostRecent = memories[0];
-	if (mostRecent && mostRecent.content && mostRecent.content.length < 200) {
+	if (mostRecent?.content && mostRecent.content.length < 200) {
 		return mostRecent.content;
 	}
 
@@ -1532,13 +1539,65 @@ function buildRecentTopics(
 ): string {
 	const words = memories.flatMap((m) => m.content.toLowerCase().split(/\s+/));
 	const stopWords = new Set([
-		"el", "la", "los", "las", "un", "una", "y", "o", "de", "del",
-		"en", "con", "para", "por", "al", "que", "es", "se", "no", "lo",
-		"como", "más", "pero", "sus", "le", "ya", "este", "entre",
-		"porque", "cuando", "todo", "también", "fue", "era", "su",
-		"me", "te", "mi", "tu", "él", "ella", "nos", "les", "las",
-		"una", "dos", "muy", "sin", "sobre", "ha", "han", "has",
-		"hay", "sea", "sido", "está", "están", "ser", "haber",
+		"el",
+		"la",
+		"los",
+		"las",
+		"un",
+		"una",
+		"y",
+		"o",
+		"de",
+		"del",
+		"en",
+		"con",
+		"para",
+		"por",
+		"al",
+		"que",
+		"es",
+		"se",
+		"no",
+		"lo",
+		"como",
+		"más",
+		"pero",
+		"sus",
+		"le",
+		"ya",
+		"este",
+		"entre",
+		"porque",
+		"cuando",
+		"todo",
+		"también",
+		"fue",
+		"era",
+		"su",
+		"me",
+		"te",
+		"mi",
+		"tu",
+		"él",
+		"ella",
+		"nos",
+		"les",
+		"las",
+		"una",
+		"dos",
+		"muy",
+		"sin",
+		"sobre",
+		"ha",
+		"han",
+		"has",
+		"hay",
+		"sea",
+		"sido",
+		"está",
+		"están",
+		"ser",
+		"haber",
 	]);
 
 	const freq = new Map<string, number>();
@@ -1589,14 +1648,10 @@ export async function handleUpdateQuickMemory(
 				(t: { title?: string; priority?: string }) =>
 					`${t.title ?? ""} (${t.priority ?? "medium"})`,
 			);
-		const topObjectives = (
-			objectives as Array<{ title: string }>
-		)
+		const topObjectives = (objectives as Array<{ title: string }>)
 			.slice(0, 3)
 			.map((o) => o.title);
-		const topLists = (
-			lists as Array<{ title: string }>
-		)
+		const topLists = (lists as Array<{ title: string }>)
 			.slice(0, 2)
 			.map((l) => l.title);
 		const topEvents = (
@@ -1621,9 +1676,7 @@ export async function handleUpdateQuickMemory(
 			return t.dueDate.toDateString() === todayStr;
 		});
 
-		const inProgress = typedTasks.filter(
-			(t) => t.status === "in_progress",
-		);
+		const inProgress = typedTasks.filter((t) => t.status === "in_progress");
 
 		const whoAmI = buildWhoAmI(
 			memories as Array<{ content: string; metadata?: unknown }>,

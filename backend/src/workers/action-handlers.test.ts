@@ -216,19 +216,29 @@ describe("handleQueryList", () => {
 });
 
 describe("handleRespond", () => {
-	it("retorna el texto proporcionado", async () => {
+	it("retorna los mensajes proporcionados", async () => {
 		const { handleRespond } = await import("./action-handlers.js");
 
 		const result = await handleRespond(
-			{ text: "Tenés 3 tareas pendientes" },
+			{
+				messages: [
+					"Tenés 3 tareas pendientes.",
+					"La más urgente es revisar el presupuesto.",
+				],
+			},
 			"corr-1",
 		);
 
 		expect(result.ok).toBe(true);
-		expect(result.payload).toMatchObject({ text: "Tenés 3 tareas pendientes" });
+		expect(result.payload).toMatchObject({
+			messages: [
+				"Tenés 3 tareas pendientes.",
+				"La más urgente es revisar el presupuesto.",
+			],
+		});
 	});
 
-	it("retorna error si falta text", async () => {
+	it("retorna error si falta messages", async () => {
 		const { handleRespond } = await import("./action-handlers.js");
 
 		const result = await handleRespond({}, "corr-1");
@@ -239,10 +249,21 @@ describe("handleRespond", () => {
 		});
 	});
 
-	it("retorna error si text es string vacío", async () => {
+	it("retorna error si messages es array vacío", async () => {
 		const { handleRespond } = await import("./action-handlers.js");
 
-		const result = await handleRespond({ text: "   " }, "corr-1");
+		const result = await handleRespond({ messages: [] }, "corr-1");
+
+		expect(result.ok).toBe(false);
+		expect(result.payload).toMatchObject({
+			error: "MISSING_REQUIRED_FIELD",
+		});
+	});
+
+	it("retorna error si messages tiene solo strings vacíos", async () => {
+		const { handleRespond } = await import("./action-handlers.js");
+
+		const result = await handleRespond({ messages: ["   ", ""] }, "corr-1");
 
 		expect(result.ok).toBe(false);
 		expect(result.payload).toMatchObject({

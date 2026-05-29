@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { get, formatForPrompt } from "../domain/quick-memory.js";
+import { formatForPrompt, get } from "../domain/quick-memory.js";
 
 export async function debugRoutes(app: FastifyInstance): Promise<void> {
 	app.get("/debug/quick-memory", async () => {

@@ -213,13 +213,23 @@ describe("formatActionResponse - objective actions", () => {
 });
 
 describe("formatActionResponse - respond", () => {
-	it("retorna el texto del payload", () => {
+	it("retorna los mensajes unidos del payload (nuevo formato)", () => {
 		const result = formatActionResponse("respond", true, {
-			text: "Tenés 3 tareas pendientes: revisar el presupuesto (alta), comprar leche (media)",
+			messages: [
+				"Tenés 3 tareas pendientes.",
+				"La más urgente es revisar el presupuesto.",
+			],
 		});
 		expect(result).toBe(
-			"Tenés 3 tareas pendientes: revisar el presupuesto (alta), comprar leche (media)",
+			"Tenés 3 tareas pendientes.\nLa más urgente es revisar el presupuesto.",
 		);
+	});
+
+	it("fallback a text si no hay messages (legacy)", () => {
+		const result = formatActionResponse("respond", true, {
+			text: "Tenés 3 tareas pendientes.",
+		});
+		expect(result).toBe("Tenés 3 tareas pendientes.");
 	});
 });
 

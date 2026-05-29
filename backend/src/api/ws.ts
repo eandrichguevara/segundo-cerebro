@@ -7,10 +7,10 @@ import { addTurn } from "../db/repositories/conversation-repository.js";
 import * as deviceRepository from "../db/repositories/device-repository.js";
 import { enqueueJob } from "../db/repositories/job-repository.js";
 import { type ClientMessage, VALID_CLIENT_TYPES } from "../domain/message.js";
+import { formatForPrompt } from "../domain/quick-memory.js";
 import { LlmError, getFastResponse } from "../llm/fast-lane.js";
 import { FAST_LANE_SYSTEM_PROMPT } from "../llm/prompts/fast-lane-system.js";
 import { SttError, transcribeAudio } from "../llm/stt.js";
-import { formatForPrompt } from "../domain/quick-memory.js";
 
 type ConnectionState = {
 	authenticated: boolean;
@@ -356,7 +356,9 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 				),
 			);
 
-			let fastResult: { ok: true; value: string } | { ok: false; error: LlmError };
+			let fastResult:
+				| { ok: true; value: string[] }
+				| { ok: false; error: LlmError };
 
 			try {
 				fastResult = await Promise.race([
@@ -371,14 +373,22 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 			} catch (error) {
 				logger.error(
 					{
-						error: error instanceof Error ? { message: error.message, name: error.name } : { raw: String(error) },
+						error:
+							error instanceof Error
+								? { message: error.message, name: error.name }
+								: { raw: String(error) },
 						correlationId,
 						sessionId: state.sessionId,
 					},
 					"Excepción no capturada en vía rápida",
 				);
-				fastResult = { ok: false, error: LlmError.RESPONSE_PARSE_FAILED as const };
+				fastResult = {
+					ok: false,
+					error: LlmError.RESPONSE_PARSE_FAILED as const,
+				};
 			}
+
+			let fastLaneResponse: string | undefined;
 
 			if (!fastResult.ok) {
 				logger.warn(
@@ -392,31 +402,31 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 			}
 
 			if (fastResult.ok) {
-				const fastResponse = fastResult.value;
-				sendJson({
-					version: "1",
-					type: "text",
-					content: fastResponse,
-					correlation_id: correlationId,
-				});
-				// Signal turn completion so the client transitions out of processing.
-				sendJson({
-					version: "1",
-					type: "audio_end",
-					correlation_id: correlationId,
-				});
+				const messages = fastResult.value;
+				fastLaneResponse = messages.join("\n");
+				for (const msg of messages) {
+					sendJson({
+						version: "1",
+						type: "text",
+						content: msg,
+						correlation_id: correlationId,
+					});
+				}
+				// NO audio_end — la vía lenta lo envía cuando termine
 
 				if (state.sessionId) {
-					await addTurn({
-						sessionId: state.sessionId,
-						role: ConversationRole.assistant,
-						content: fastResponse,
-					}).catch((error) => {
-						logger.error(
-							{ error, correlationId },
-							"Error guardando turno assistant",
-						);
-					});
+					for (const msg of messages) {
+						await addTurn({
+							sessionId: state.sessionId,
+							role: ConversationRole.assistant,
+							content: msg,
+						}).catch((error) => {
+							logger.error(
+								{ error, correlationId },
+								"Error guardando turno assistant",
+							);
+						});
+					}
 				}
 			} else {
 				sendJson({
@@ -425,26 +435,24 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 					content: "Un momento, estoy procesando...",
 					correlation_id: correlationId,
 				});
-				// Signal turn completion so the client can transition
-				// out of the processing state even though no audio follows.
-				sendJson({
-					version: "1",
-					type: "audio_end",
-					correlation_id: correlationId,
-				});
+				// NO audio_end — la vía lenta lo envía cuando termine
 			}
 
 			if (state.sessionId) {
 				try {
+					const jobPayload: Record<string, unknown> = {
+						transcribed_text: userText,
+						audio_format: state.audioFormat ?? "mp3",
+						received_at: new Date().toISOString(),
+					};
+					if (fastLaneResponse) {
+						jobPayload.fast_lane_response = fastLaneResponse;
+					}
 					await enqueueJob({
 						correlationId,
 						sessionId: state.sessionId,
 						type: "process_message",
-						payload: {
-							transcribed_text: userText,
-							audio_format: state.audioFormat ?? "mp3",
-							received_at: new Date().toISOString(),
-						},
+						payload: jobPayload,
 					});
 					logger.info({ correlationId }, "Job encolado para vía lenta");
 				} catch (error) {
