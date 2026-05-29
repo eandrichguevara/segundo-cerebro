@@ -285,7 +285,7 @@ describe("WebSocket handler", () => {
 			expect(vi.mocked(transcribeAudio)).toHaveBeenCalled();
 			expect(vi.mocked(getFastResponse)).toHaveBeenCalledWith(
 				"hola",
-				"test prompt",
+				expect.stringContaining("test prompt"),
 			);
 			expect(vi.mocked(addTurn)).toHaveBeenCalledTimes(2);
 			expect(vi.mocked(enqueueJob)).toHaveBeenCalledWith(

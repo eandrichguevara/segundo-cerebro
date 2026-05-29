@@ -4,6 +4,8 @@ vi.mock("../config/env.js", () => ({
 	env: {
 		OPENAI_FAST_MODEL: "gpt-4.1-mini",
 		FCM_SERVICE_ACCOUNT: "./test-account.json",
+		LOG_LEVEL: "warn",
+		NODE_ENV: "test",
 	},
 }));
 
@@ -54,8 +56,45 @@ describe("FAST_LANE_SYSTEM_PROMPT", () => {
 			"./prompts/fast-lane-system.js"
 		);
 		expect(FAST_LANE_SYSTEM_PROMPT).toContain(
-			"Tenes 3 tareas: revisar presupuesto",
+			"Tenes 3 tareas pendientes: revisar presupuesto",
 		);
+	});
+
+	it("incluye instrucciones para reconocer info personal (nombre, preferencias)", async () => {
+		const { FAST_LANE_SYSTEM_PROMPT } = await import(
+			"./prompts/fast-lane-system.js"
+		);
+		expect(FAST_LANE_SYSTEM_PROMPT).toContain("información personal");
+	});
+
+	it("incluye ejemplo de presentación (nombre del usuario)", async () => {
+		const { FAST_LANE_SYSTEM_PROMPT } = await import(
+			"./prompts/fast-lane-system.js"
+		);
+		expect(FAST_LANE_SYSTEM_PROMPT).toContain("Me llamo Emilio");
+		expect(FAST_LANE_SYSTEM_PROMPT).toContain("Hola Emilio");
+	});
+
+	it("incluye ejemplo de preferencia del usuario", async () => {
+		const { FAST_LANE_SYSTEM_PROMPT } = await import(
+			"./prompts/fast-lane-system.js"
+		);
+		expect(FAST_LANE_SYSTEM_PROMPT).toContain("Prefiero trabajar de mañana");
+	});
+
+	it("incluye ejemplo de estado emocional", async () => {
+		const { FAST_LANE_SYSTEM_PROMPT } = await import(
+			"./prompts/fast-lane-system.js"
+		);
+		expect(FAST_LANE_SYSTEM_PROMPT).toContain("con mucha energía");
+	});
+
+	it("tiene tono cálido y conversacional en la descripción", async () => {
+		const { FAST_LANE_SYSTEM_PROMPT } = await import(
+			"./prompts/fast-lane-system.js"
+		);
+		expect(FAST_LANE_SYSTEM_PROMPT).toContain("cálida");
+		expect(FAST_LANE_SYSTEM_PROMPT).toContain("como si estuvieras charlando");
 	});
 });
 

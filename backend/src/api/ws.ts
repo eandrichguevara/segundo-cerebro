@@ -345,7 +345,7 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 			const quickContext = formatForPrompt();
 			const fastLanePrompt = quickContext
 				? `${FAST_LANE_SYSTEM_PROMPT}\n\n${quickContext}`
-				: FAST_LANE_SYSTEM_PROMPT;
+				: `${FAST_LANE_SYSTEM_PROMPT}\n\n## Contexto rápido\nNo hay contexto disponible aún. Si el usuario te pide que te presentes, respondé de forma breve como su asistente personal de productividad.`;
 			const fastResponsePromise = getFastResponse(userText, fastLanePrompt);
 
 			const timeoutMs = env.FAST_LANE_TIMEOUT_MS;
@@ -356,15 +356,40 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 				),
 			);
 
-			const fastResult = await Promise.race([
-				fastResponsePromise,
-				timeoutPromise,
-			]).catch((error) => {
-				if (error instanceof DOMException && error.name === "AbortError") {
-					return { ok: false, error: LlmError.TIMEOUT } as const;
-				}
-				throw error;
-			});
+			let fastResult: { ok: true; value: string } | { ok: false; error: LlmError };
+
+			try {
+				fastResult = await Promise.race([
+					fastResponsePromise,
+					timeoutPromise,
+				]).catch((error) => {
+					if (error instanceof DOMException && error.name === "AbortError") {
+						return { ok: false, error: LlmError.TIMEOUT } as const;
+					}
+					throw error;
+				});
+			} catch (error) {
+				logger.error(
+					{
+						error: error instanceof Error ? { message: error.message, name: error.name } : { raw: String(error) },
+						correlationId,
+						sessionId: state.sessionId,
+					},
+					"Excepción no capturada en vía rápida",
+				);
+				fastResult = { ok: false, error: LlmError.RESPONSE_PARSE_FAILED as const };
+			}
+
+			if (!fastResult.ok) {
+				logger.warn(
+					{
+						error: fastResult.error,
+						correlationId,
+						sessionId: state.sessionId,
+					},
+					"Vía rápida falló, usando fallback",
+				);
+			}
 
 			if (fastResult.ok) {
 				const fastResponse = fastResult.value;

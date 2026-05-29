@@ -21,8 +21,8 @@ const envSchema = z.object({
 	RATE_LIMIT_OTHER: z.coerce.number().int().positive().default(10),
 	FAST_LANE_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
 	OPENAI_STT_MODEL: z.string().default("whisper-1"),
-	OPENAI_FAST_MODEL: z.string().default("gpt-4.1-mini"),
-	OPENAI_SLOW_MODEL: z.string().default("gpt-4o"),
+	OPENAI_FAST_MODEL: z.string().default("gpt-5-nano"),
+	OPENAI_SLOW_MODEL: z.string().default("gpt-5-mini"),
 	OPENAI_TTS_MODEL: z.string().default("tts-1-hd"),
 	OPENAI_TTS_VOICE: z
 		.enum(["alloy", "echo", "fable", "onyx", "nova", "shimmer"])
