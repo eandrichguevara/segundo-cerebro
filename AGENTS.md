@@ -22,7 +22,7 @@ Interfaz: **voice-first**, sin dashboards. La app móvil es solo un cliente de v
 | LLM vía lenta     | OpenAI (default `gpt-5-mini`, configurable via `OPENAI_SLOW_MODEL`) — lógica, validación, JSON estructurado |
 | Embeddings        | OpenAI `text-embedding-3-small`                                                                             |
 | Job queue         | PostgreSQL (Fase 1). Escalar a Graphile Worker o BullMQ requiere actualizar este archivo.                   |
-| Audio móvil       | WebRTC (`flutter_webrtc`) — micrófono continuo, reproducción automática, sin push-to-talk                   |
+| Audio móvil       | WebSocket (`web_socket_channel`) + captura PCM (`record`) — tap-to-record, sin reproducción de audio TTS     |
 | Notificaciones    | Firebase Cloud Messaging (FCM)                                                                              |
 | Mobile            | Flutter                                                                                                     |
 | Auth (MVP)        | Token único estático                                                                                        |
@@ -40,7 +40,7 @@ No cambiar estas decisiones sin actualizar este archivo.
 2. Servidor acumula chunks, al recibir `audio_end` envía el buffer completo a OpenAI Whisper API (`whisper-1`) para transcripción.
 3. Texto transcrito → se inyecta **Quick Memory** (contexto resumido en < 700 tokens desde cache en RAM) + OpenAI (modelo configurable via `OPENAI_FAST_MODEL`, default `gpt-5-nano`) para respuesta textual rápida.
 4. Respuesta de texto enviada al cliente vía WebSocket (`text` + `audio_end` para cerrar el turno).
-5. Eventos (transcript) enviados por WebSocket de control.
+5. El servidor envía mensajes `processing` (ej: "Buscando...") por WebSocket mientras la vía lenta procesa.
 
 Objetivo: mantener conversación fluida, con respuesta en < 5 s. **Sin escritura directa en base de datos** (excepto `conversation_turns` y encolado de la vía lenta). La vía rápida puede responder preguntas simples usando la Quick Memory sin depender de la vía lenta.
 
@@ -76,7 +76,7 @@ Cliente (Flutter)
   │                                        │         → respuesta textual
   │                                        │                │
   │ ◄── WebSocket text + audio_end ◄──────┘          respuesta texto
-  │ ◄── WebSocket control ◄────────────────────── eventos (transcript)
+  │ ◄── WebSocket processing ◄─────────────────── eventos (processing)
   │                                                  │
   │                                         ┌────────┴────────┐
   │                                         │                  │
@@ -289,6 +289,7 @@ La vía lenta produce JSON estructurado que el worker ejecuta como operaciones C
 | `update_recurrence_rule` | Modificar la regla de recurrencia de un evento recurrente                                                                                |
 | `link_task_event`        | Vincular tareas con eventos (relación muchos-a-muchos)                                                                                   |
 | `unlink_task_event`      | Desvincular tareas de eventos                                                                                                            |
+| `update_quick_memory`    | Actualizar la Quick Memory (cache en RAM) con los datos más recientes de la base de datos                                                |
 
 ### Estructura general de acciones
 
@@ -996,6 +997,9 @@ Códigos de error de acción:
 | `EVENT_NOT_FOUND`             | No existe un evento con el ID proporcionado                                     |
 | `INVALID_RECURRENCE_RULE`     | La regla de recurrencia tiene un formato inválido                               |
 | `EXCEPTION_DATE_MISMATCH`     | La fecha de excepción no coincide con ninguna instancia recurrente              |
+| `CANNOT_MODIFY_COMPLETED`    | No se puede modificar una tarea que ya está completada                          |
+| `CANNOT_MODIFY_CANCELLED`    | No se puede modificar una tarea que ya está cancelada                           |
+| `UNKNOWN_ACTION`             | La acción solicitada no está registrada en el router                            |
 
 ### Reglas de la vía lenta
 
@@ -1004,7 +1008,8 @@ Códigos de error de acción:
 3. Si el mensaje del usuario es ambiguo, la vía lenta debe elegir la acción más probable y notificar al usuario.
 4. Si el mensaje no mapea a ninguna acción, la vía lenta envía `store_memory` para preservar la interacción.
 5. Cuando el usuario pregunta por información existente (tareas, listas, objetivos, eventos, resúmenes, cruces de datos), la vía lenta debe usar `respond` en vez de `store_memory`. `respond` genera texto conversacional usando el contexto disponible sin tocar la base de datos.
-6. Los campos no proporcionados en `update_task`, `update_objective` y `update_event` no se modifican (patch semántico, no replace). En listas, `add_list_items` siempre agrega al array existente; no reemplaza.
+6. Si la extracción de acciones falla y se agotan los reintentos, el worker envía al cliente: "Hubo un problema al procesar tu mensaje. Podés intentarlo de nuevo."
+7. Los campos no proporcionados en `update_task`, `update_objective` y `update_event` no se modifican (patch semántico, no replace). En listas, `add_list_items` siempre agrega al array existente; no reemplaza.
 
 ## Data model & business rules
 
@@ -1017,6 +1022,7 @@ Códigos de error de acción:
 - **lists**: colección flexible de items (compra, ingredientes, etc.). Campos: `id` (UUID PK), `title`, `description`, `type` (string libre: `shopping`, `ingredients`, `general`, etc.), `status` (enum: `active`, `completed`, `cancelled`), `items` (JSONB: array de `{ content, quantity?, checked }`), `created_at` (timestamptz), `updated_at` (timestamptz), `cancelled_at` (timestamptz nullable).
 - **events**: evento único o recurrente con soporte de excepciones. Campos: `id` (UUID PK), `title`, `description`, `location`, `category`, `start_time` (timestamptz), `end_time` (timestamptz nullable), `status` (enum: `active`, `completed`, `cancelled`), `recurrence_rule` (JSONB nullable — patrón de recurrencia), `parent_id` (UUID FK nullable — para excepciones de eventos recurrentes), `is_exception` (boolean), `exception_date` (timestamptz nullable — fecha original que esta excepción reemplaza), `cancelled_at` (timestamptz nullable).
 - **task_event_links**: join table many-to-many entre tasks y events. Campos: `id` (UUID PK), `task_id` (UUID FK), `event_id` (UUID FK). Unique constraint `(task_id, event_id)`.
+- **devices**: dispositivos registrados para notificaciones push FCM. Campos: `id` (UUID PK), `fcm_token` (string unique), `platform` (string), `created_at` (timestamptz), `updated_at` (timestamptz).
 
 ### Relaciones entre entidades
 
@@ -1167,24 +1173,27 @@ Estructura **definida** del proyecto:
 ```
 backend/
   src/
-    api/            # Controladores HTTP/WebSocket (Fastify)
+    api/            # Controladores HTTP/WebSocket (Fastify); health.ts, debug.ts
     workers/        # Workers de cola (vía lenta)
     llm/            # Integraciones: OpenAI (Whisper, gpt-5-nano, gpt-5-mini, embeddings); prompts
     db/             # Cliente PostgreSQL, schema Prisma, repositorios
-    domain/         # Reglas de negocio: tareas, objetivos, listas, notificaciones
-    config/         # Configuración (variables de entorno, límites, flags)
+    domain/         # Reglas de negocio: tareas, objetivos, listas, eventos, notificaciones
+    config/         # Configuración (variables de entorno, límites, flags, logger)
     auth/           # Autenticación por token estático
+    types/          # Tipos compartidos: Result<T,E>, augmentaciones Fastify
+    notifications/  # Firebase Cloud Messaging (FCM) + notifier
   prisma/
     schema.prisma   # Modelos de base de datos
     seed.ts         # Datos iniciales (estados, categorías)
 appmovil/           # App Flutter (cliente de voz)
+deploy/             # Despliegue (docker-compose.prod.yml, nginx)
 ```
 
 No mover carpetas de alto nivel sin instrucción explícita.
 
 ## Code conventions
 
-- **Naming**: `camelCase` en TypeScript, `snake_case` en BD, archivos en `kebab-case.ts`. Modelos Prisma en `PascalCase` en inglés (`Task`, `Objective`, `Memory`, `ConversationTurn`). Tablas BD en `snake_case` en inglés (`tasks`, `objectives`, `memories`, `conversation_turns`). Si se necesita otro nombre de tabla, usar `@@map` en el schema Prisma.
+- **Naming**: `camelCase` en TypeScript, `snake_case` en BD, archivos en `kebab-case.ts`. Modelos Prisma en `PascalCase` en inglés (`Task`, `Objective`, `Memory`, `ConversationTurn`, `Job`, `Device`, `Event`, `List`). Tablas BD en `snake_case` en inglés (`tasks`, `objectives`, `memories`, `conversation_turns`, `jobs`, `devices`, `events`, `lists`). Si se necesita otro nombre de tabla, usar `@@map` en el schema Prisma.
 - **Imports**: agrupar en tres bloques: (1) externos, (2) internos absolutos (`@/...`), (3) relativos. Separar con línea en blanco.
 - **Error handling**: usar patrón `Result<T, E>` en `domain/`. Evitar try/catch disperso. Las funciones que pueden fallar devuelven `Result`; los controladores de api/workers manejan el desempaquetado. Definición canónica:
   ```typescript
@@ -1231,7 +1240,7 @@ No mover carpetas de alto nivel sin instrucción explícita.
 - Extraer JSON/estructuras fuertemente tipadas.
 - Validar reglas y detectar conflictos.
 - Decidir operaciones CRUD sobre la base de datos.
-- Recibe contexto: últimos N `conversation_turns` de la sesión + top-K memorias relevantes + objetivos activos + tareas activas.
+- Recibe contexto: últimos N `conversation_turns` de la sesión + top-K memorias relevantes + objetivos activos + tareas activas + listas activas + eventos próximos (7 días).
 
 ### OpenAI TTS (text-to-speech) — no integrado en producción
 
@@ -1248,7 +1257,7 @@ No mover carpetas de alto nivel sin instrucción explícita.
 
 - **Ubicación**: `backend/src/llm/prompts/`.
 - **Archivos**: `fast-lane-system.ts` (vía rápida), `slow-lane-system.ts`, `slow-lane-actions.ts` (vía lenta).
-- **Variables de template**: `{{user_context}}`, `{{recent_memories}}`, `{{active_objectives}}`, `{{active_tasks}}`, `{{active_lists}}`, `{{conversation_turns}}`. `{{active_tasks}}` incluye las tareas en estado `pending`, `in_progress` y `postponed` de los objetivos activos (y tareas sin objetivo), necesarias para que gpt-5-mini resuelva referencias como "marcar la tarea de presupuesto como completada". `{{active_lists}}` incluye las listas en estado `active`.
+- **Variables de template**: `{{user_context}}`, `{{recent_memories}}`, `{{active_objectives}}`, `{{active_tasks}}`, `{{active_lists}}`, `{{conversation_turns}}`, `{{upcoming_events}}`. `{{active_tasks}}` incluye las tareas en estado `pending`, `in_progress` y `postponed` de los objetivos activos (y tareas sin objetivo), necesarias para que gpt-5-mini resuelva referencias como "marcar la tarea de presupuesto como completada". `{{active_lists}}` incluye las listas en estado `active`. `{{upcoming_events}}` incluye eventos próximos a 7 días más eventos recurrentes activos.
 - **Regla**: los prompts **siempre** viven en código versionado. Nunca en base de datos ni en archivos de configuración externos.
 
 ## Protocolo WebSocket (MVP)
@@ -1260,9 +1269,7 @@ Formato básico de mensajes entre cliente y servidor. Todos los mensajes incluye
 { "version": "1", "id": "<uuid-v4>", "type": "audio_chunk", "data": "<base64>" }
 { "version": "1", "id": "<uuid-v4>", "type": "audio_end" }
 { "version": "1", "id": "<uuid-v4>", "type": "auth", "token": "<token>", "audio_format": "mp3" }  // audio_format es opcional: "mp3" (default) o "pcm"
-{ "version": "1", "id": "<uuid-v4>", "type": "audio_start" }  // Inicia grabación de audio
-{ "version": "1", "id": "<uuid-v4>", "type": "audio_mute" }   // Silencia micrófono temporalmente
-{ "version": "1", "id": "<uuid-v4>", "type": "audio_unmute" } // Reanuda micrófono
+{ "version": "1", "id": "<uuid-v4>", "type": "register_fcm_token", "token": "<fcm-token>", "platform": "ios|android" }
 
 // Servidor → Cliente
 { "version": "1", "type": "auth_ok", "session_id": "<uuid-v4>", "audio_format": "mp3", "correlation_id": "<uuid-v4>" }
@@ -1270,11 +1277,9 @@ Formato básico de mensajes entre cliente y servidor. Todos los mensajes incluye
 { "version": "1", "type": "audio_end", "correlation_id": "<uuid-v4>" }
 { "version": "1", "type": "text", "content": "<texto>", "correlation_id": "<uuid-v4>" }
 { "version": "1", "type": "processing", "content": "<texto>", "correlation_id": "<uuid-v4>" }
-{ "version": "1", "type": "action_result", "ok": true, "action": "<respond|create_task|start_task|update_task|complete_task|cancel_task|postpone_task|create_objective|update_objective|complete_objective|cancel_objective|pause_objective|resume_objective|store_memory|query_list|create_list|add_list_items|check_list_item|uncheck_list_item|complete_list|cancel_list>", "correlation_id": "<uuid-v4>", "payload": { ... } }
+{ "version": "1", "type": "action_result", "ok": true, "action": "<respond|create_task|start_task|update_task|complete_task|cancel_task|postpone_task|create_objective|update_objective|complete_objective|cancel_objective|pause_objective|resume_objective|store_memory|query_list|create_list|add_list_items|check_list_item|uncheck_list_item|complete_list|cancel_list|create_event|update_event|delete_event|query_events|move_event_instance|update_recurrence_rule|link_task_event|unlink_task_event>", "correlation_id": "<uuid-v4>", "payload": { ... } }
 { "version": "1", "type": "notification", "level": "<warning|reminder>", "message": "...", "correlation_id": "<uuid-v4>" }
 { "version": "1", "type": "error", "code": "<code>", "message": "...", "correlation_id": "<uuid-v4>" }
-{ "version": "1", "type": "transcript", "content": "<texto del usuario>", "correlation_id": "<uuid-v4>" }
-{ "version": "1", "type": "agent_state", "state": "listening|thinking|speaking", "correlation_id": "<uuid-v4>" }
 ```
 
 ### Formato de audio
@@ -1348,6 +1353,7 @@ Lista de nombres requeridos (sin valores):
 - `DATABASE_URL` (PostgreSQL)
 - `AUTH_TOKEN` (token estático para acceso)
 - `PORT` (default: 3000)
+- `HOST` (default: `0.0.0.0`)
 - `NODE_ENV`
 
 Nunca codificar valores directamente en el código.
@@ -1374,6 +1380,7 @@ Nunca codificar valores directamente en el código.
 | `MEMORY_RETRIEVAL_LIMIT`   | `5`          | Cantidad de memorias relevantes (top-K) a recuperar                                   |
 | `ID_CACHE_SIZE`            | `1000`       | Cantidad máxima de IDs en cache de idempotencia                                       |
 | `ID_CACHE_TTL_MS`          | `300000`     | TTL del cache de idempotencia en milisegundos (5 min)                                 |
+| `SLOW_LANE_MAX_TOKENS`     | `4000`       | `max_completion_tokens` para la vía lenta                                              |
 
 ## Manejo de errores
 
@@ -1398,15 +1405,17 @@ Nunca codificar valores directamente en el código.
 
 ## Project commands
 
-> El proyecto aún no tiene `package.json`. Cuando se cree, esta sección se actualizará con los scripts reales. Usa siempre los scripts definidos en `package.json`; no inventes comandos.
+> Usa siempre los scripts definidos en `package.json`; no inventes comandos.
 
-Comandos esperados (se confirmarán al crear el proyecto):
+Comandos del proyecto (`package.json` en `backend/`):
 
-- `pnpm dev` – levantar servidor HTTP/WebSocket.
-- `pnpm test` – ejecutar tests.
-- `pnpm lint` – comprobar estilo y reglas.
-- `pnpm prisma:migrate` – aplicar migraciones.
-- `pnpm worker` – levantar worker de vía lenta (si existe script separado).
+- `pnpm dev` – levantar servidor HTTP/WebSocket (con `tsx watch`).
+- `pnpm test` – ejecutar tests (Vitest).
+- `pnpm lint` – comprobar estilo (Biome) y tipado (`tsc --noEmit`).
+- `pnpm build` – compilar TypeScript (`tsc`).
+- `pnpm start` – iniciar servidor desde compilado (`node dist/index.js`).
+- `pnpm prisma:migrate` – aplicar migraciones (`prisma migrate dev`).
+- `pnpm worker` – levantar worker de vía lenta (en proceso separado, opcional).
 
 ## Glosario
 
@@ -1430,7 +1439,7 @@ Decisiones marcadas como "MVP" o "Fase 1" son temporales. Las invariantes de neg
 
 ## Health checks y métricas mínimas
 
-- **Endpoint**: `GET /health` devuelve `{ status: "ok", timestamp: "<ISO 8601>" }` y verifica conexión a PostgreSQL.
+- **Endpoint**: `GET /health` devuelve `{ status: "ok"|"degraded", timestamp: "<ISO 8601>", database: "connected"|"disconnected", jobs: { pending, processing, completed, failed } }` y verifica conexión a PostgreSQL.
 - **Métricas internas** (en memoria, sin dependencias externas):
   - Latencia P95 de vía rápida y vía lenta.
   - Jobs por estado (`pending`, `processing`, `completed`, `failed`).
@@ -1511,8 +1520,9 @@ Cada vez que se realice una modificación al proyecto (agregar funcionalidad, co
 #### Backend – API
 
 - [x] Health check (`GET /health`)
+- [x] Debug endpoint (`GET /debug/quick-memory`)
 - [x] WebSocket handler (`ws.ts`)
-- [x] Protocolo de mensajes (auth, audio_chunk, audio_end)
+- [x] Protocolo de mensajes (auth, audio_chunk, audio_end, register_fcm_token)
 - [x] Idempotencia de mensajes (ID cache)
 - [x] Rate limiting
 - [x] Timeout de inactividad
@@ -1543,10 +1553,10 @@ Cada vez que se realice una modificación al proyecto (agregar funcionalidad, co
 
 #### Backend – Base de datos
 
-- [x] Schema Prisma completo (Task, Objective, Memory, ConversationTurn, Job, List)
-- [x] Repositorios: task, objective, list, memory, conversation, job
+- [x] Schema Prisma completo (Task, Objective, Memory, ConversationTurn, Job, List, Event, Device)
+- [x] Repositorios: task, objective, list, memory, conversation, job, event, device
 - [x] Seed con datos iniciales
-- [x] Tests de repositorios (task, objective, memory, conversation, list, job)
+- [x] Tests de repositorios (task, objective, memory, conversation, list, job, event)
 
 #### Backend – Workers (vía lenta)
 
@@ -1651,7 +1661,7 @@ Cada vez que se realice una modificación al proyecto (agregar funcionalidad, co
 - [x] `ws.test.ts`
 - [x] `auth/index.test.ts`
 - [x] Tests de workers (`slow-lane-processor.test.ts`, `job-repository.test.ts`)
-- [x] Tests de repositorios (task, objective, memory, conversation, list, job)
+- [x] Tests de repositorios (task, objective, memory, conversation, list, job, event)
 - [x] Tests de integraciones LLM (mocks)
 - [x] Tests de FCM (fcm.test.ts)
 - [x] Tests de device repository
@@ -1659,15 +1669,16 @@ Cada vez que se realice una modificación al proyecto (agregar funcionalidad, co
 #### App Móvil (Flutter)
 
 - [x] Inicializar proyecto Flutter
-- [x] Captura de audio (PCM 16-bit, 16kHz, mono) — legacy, reemplazado por WebRTC
-- [x] Conexión WebSocket — legacy para control messages, reemplazado vía WebRTC para audio
+- [x] Captura de audio (PCM 16-bit, 16kHz, mono) con `record` package
+- [x] Conexión WebSocket (`web_socket_channel`) para mensajes + audio
 - [x] Flujo de auth
-- [x] Envío de audio_chunks — legacy, reemplazado por WebRTC streaming continuo
-- [x] Recepción y reproducción de audio TTS — legacy, reemplazado por WebRTC
+- [x] Envío de audio_chunks como base64 por WebSocket
 - [x] Manejo de reconexión con backoff exponencial
-- [x] WebRTC service (`webrtc_service.ts`) — micrófono continuo, reproducción automática
-- [x] AudioService reescrito para WebRTC + control messages
-- [x] Voice indicator widget (sin push-to-talk)
+- [x] AudioService con estados (idle → recording → processing)
+- [x] Voice indicator widget (tap-to-record, sin push-to-talk)
+- [x] Modo tap-to-record (sin micrófono continuo)
+- [x] Timeout de seguridad (30s) en estado processing
+- [x] Manejo de errores del servidor (transición a idle)
 - [x] Smoke tests
 
 #### Documentación
