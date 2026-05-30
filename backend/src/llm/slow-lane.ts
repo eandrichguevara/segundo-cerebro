@@ -80,7 +80,7 @@ export async function extractActions(
 		if (context.fastLaneResponse) {
 			messages.push({
 				role: "system",
-				content: `## Respuesta anterior (vía rápida)\nEl asistente ya respondió: "${context.fastLaneResponse}"\nTu respuesta debe COMPLEMENTAR lo que ya se dijo. No repitas información. Proveé detalles adicionales, confirmaciones de acciones, o información que añada valor a lo que ya se respondió.`,
+				content: `## Respuesta anterior (vía rápida)\n"${context.fastLaneResponse}"`,
 			});
 		}
 
@@ -91,7 +91,7 @@ export async function extractActions(
 				model: env.OPENAI_SLOW_MODEL,
 				messages,
 				max_completion_tokens: env.SLOW_LANE_MAX_TOKENS,
-				reasoning_effort: "minimal",
+				reasoning_effort: "low",
 				response_format: { type: "json_object" },
 			},
 			{ timeout: 30_000 },

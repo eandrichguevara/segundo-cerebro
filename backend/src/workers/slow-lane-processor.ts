@@ -414,8 +414,7 @@ async function processJob(): Promise<void> {
 		const shouldSkipRespond =
 			fastLaneResponse !== undefined &&
 			!hasCrudActions &&
-			respondResults.length > 0 &&
-			!hasRespondWithDisplay;
+			respondResults.length > 0;
 
 		if (shouldSkipRespond) {
 			logger.info(
