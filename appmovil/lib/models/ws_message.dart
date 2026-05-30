@@ -214,6 +214,41 @@ class ErrorMessage extends WsMessage {
   Map<String, dynamic> toJson() => throw UnimplementedError();
 }
 
+class TranscriptionMessage extends WsMessage {
+  final String content;
+  final String? correlationId;
+
+  TranscriptionMessage({required this.content, this.correlationId})
+      : super('transcription');
+
+  factory TranscriptionMessage.fromJson(Map<String, dynamic> json) =>
+      TranscriptionMessage(
+        content: json['content'] as String,
+        correlationId: json['correlation_id'] as String?,
+      );
+
+  @override
+  Map<String, dynamic> toJson() => throw UnimplementedError();
+}
+
+class DisplayMessage extends WsMessage {
+  final List<Map<String, dynamic>> entities;
+  final String? correlationId;
+
+  DisplayMessage({required this.entities, this.correlationId})
+      : super('display');
+
+  factory DisplayMessage.fromJson(Map<String, dynamic> json) =>
+      DisplayMessage(
+        entities: (json['entities'] as List<dynamic>)
+            .cast<Map<String, dynamic>>(),
+        correlationId: json['correlation_id'] as String?,
+      );
+
+  @override
+  Map<String, dynamic> toJson() => throw UnimplementedError();
+}
+
 class ProcessingMessage extends WsMessage {
   final String content;
   final String? correlationId;
@@ -250,6 +285,10 @@ WsMessage parseServerMessage(Map<String, dynamic> json) {
       return NotificationMessage.fromJson(json);
     case 'error':
       return ErrorMessage.fromJson(json);
+    case 'transcription':
+      return TranscriptionMessage.fromJson(json);
+    case 'display':
+      return DisplayMessage.fromJson(json);
     case 'processing':
       return ProcessingMessage.fromJson(json);
     default:

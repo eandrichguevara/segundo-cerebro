@@ -329,7 +329,32 @@ async function processJob(): Promise<void> {
 		}
 
 		// Send user-facing text — prefer respond.messages as granular chat
-		if (respondResults.length > 0) {
+		const hasCrudActions = otherResults.length > 0;
+		const shouldSkipRespond =
+			fastLaneResponse !== undefined &&
+			!hasCrudActions &&
+			respondResults.length > 0;
+
+		if (shouldSkipRespond) {
+			logger.info(
+				{ jobId, correlationId },
+				"Safety net: skipping respond text (fast lane already responded, no CRUD actions)",
+			);
+			// Still send display data even when skipping text
+			for (const rr of respondResults) {
+				const display = rr.payload.display as
+					| Array<Record<string, unknown>>
+					| undefined;
+				if (Array.isArray(display) && display.length > 0 && sessionId) {
+					sendToSession(sessionId, {
+						version: "1",
+						type: "display",
+						entities: display,
+						correlation_id: rr.correlationId,
+					});
+				}
+			}
+		} else if (respondResults.length > 0) {
 			for (const rr of respondResults) {
 				const messages = (rr.payload.messages as string[]) ?? [];
 				for (const msg of messages) {
@@ -350,6 +375,19 @@ async function processJob(): Promise<void> {
 							{ error, correlationId },
 							"Error guardando turno assistant",
 						);
+					});
+				}
+
+				// Send display data as separate message for native rendering
+				const display = rr.payload.display as
+					| Array<Record<string, unknown>>
+					| undefined;
+				if (Array.isArray(display) && display.length > 0 && sessionId) {
+					sendToSession(sessionId, {
+						version: "1",
+						type: "display",
+						entities: display,
+						correlation_id: rr.correlationId,
 					});
 				}
 			}

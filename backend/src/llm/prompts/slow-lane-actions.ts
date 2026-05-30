@@ -5,14 +5,27 @@ export const SLOW_LANE_ACTIONS_PROMPT = `
 Respondé al usuario con texto natural usando la información del contexto (tareas, listas, objetivos, memorias).
 Usá esta acción para preguntas, resúmenes, cruces de datos e insights.
 
-Payload:
-- text: string (requerido, respuesta natural en español)
+Payoad:
+- messages: string[] (requerido, array de mensajes naturales en español)
+- display: array opcional de entidades estructuradas para renderizado visual
 
-Ejemplo:
+El campo \`display\` puede contener los siguientes tipos de entidades:
+
+- **task**: {type:"task", title, priority:"high"|"medium"|"low", status:"pending"|"in_progress"|"completed"|"postponed"|"cancelled", dueDate?:ISO8601}
+- **list**: {type:"list", title, items:[{content, quantity?, checked}]}
+- **objective**: {type:"objective", title, status:"active"|"paused"|"completed"|"cancelled", deadline?:ISO8601}
+- **event**: {type:"event", title, startTime:ISO8601, endTime?:ISO8601, location?, recurrence?, category?}
+- **memory**: {type:"memory", content}
+
+Ejemplo con display:
 {
   "action": "respond",
   "payload": {
-    "text": "Tenés 3 tareas pendientes: revisar el presupuesto (alta), comprar leche (media) y llamar a tu mamá (baja)."
+    "messages": ["Tenes 3 tareas pendientes.", "La mas urgente es 🔴 revisar el presupuesto."],
+    "display": [
+      { "type": "task", "title": "Revisar presupuesto", "priority": "high", "status": "pending" },
+      { "type": "task", "title": "Comprar leche", "priority": "medium", "status": "pending" }
+    ]
   }
 }
 

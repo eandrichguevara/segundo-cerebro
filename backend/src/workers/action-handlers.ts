@@ -28,6 +28,7 @@ import {
 	transitionStatus as transitionTaskStatus,
 } from "../domain/task.js";
 import { generateEmbedding } from "../llm/embeddings.js";
+import type { DisplayEntity } from "../types/display.js";
 import type { Result } from "../types/result.js";
 
 type ActionResult = {
@@ -68,7 +69,15 @@ export async function handleRespond(
 			message: "messages debe contener al menos un string no vacío",
 		});
 	}
-	return actionResult(true, "respond", correlationId, { messages: trimmed });
+
+	const result: Record<string, unknown> = { messages: trimmed };
+
+	const display = payload.display as Array<Record<string, unknown>> | undefined;
+	if (Array.isArray(display) && display.length > 0) {
+		result.display = display;
+	}
+
+	return actionResult(true, "respond", correlationId, result);
 }
 
 export async function handleQueryList(

@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../config/app_config.dart';
+import '../models/display_entity.dart';
 import '../models/ws_message.dart';
 
 enum WsConnectionState {
@@ -22,12 +23,17 @@ class WebSocketService {
   final _textController = StreamController<String>.broadcast();
   final _errorController = StreamController<String>.broadcast();
   final _processingController = StreamController<bool>.broadcast();
+  final _displayController =
+      StreamController<List<DisplayEntity>>.broadcast();
+  final _transcriptionController = StreamController<String>.broadcast();
 
   Stream<WsConnectionState> get stateStream => _stateController.stream;
   Stream<WsMessage> get messageStream => _messageController.stream;
   Stream<String> get textStream => _textController.stream;
   Stream<String> get errorStream => _errorController.stream;
   Stream<bool> get processingStream => _processingController.stream;
+  Stream<List<DisplayEntity>> get displayStream => _displayController.stream;
+  Stream<String> get transcriptionStream => _transcriptionController.stream;
 
   WsConnectionState _state = WsConnectionState.disconnected;
   WsConnectionState get state => _state;
@@ -106,7 +112,22 @@ class WebSocketService {
       case AudioEndResponse():
         _processingController.add(false);
         break;
-      case ActionResultMessage():
+      case ActionResultMessage msg:
+        if (msg.action == 'respond') {
+          final displayRaw = msg.payload['display'];
+          if (displayRaw != null) {
+            final entities = parseDisplayList(displayRaw);
+            if (entities.isNotEmpty) {
+              _displayController.add(entities);
+            }
+          }
+        }
+        break;
+      case TranscriptionMessage msg:
+        _transcriptionController.add(msg.content);
+        break;
+      case DisplayMessage msg:
+        _displayController.add(parseDisplayList(msg.entities));
         break;
       case NotificationMessage msg:
         _textController.add('[${msg.level}] ${msg.message}');
@@ -183,5 +204,7 @@ class WebSocketService {
     _textController.close();
     _errorController.close();
     _processingController.close();
+    _displayController.close();
+    _transcriptionController.close();
   }
 }

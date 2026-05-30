@@ -329,6 +329,13 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 				"Audio transcrito",
 			);
 
+			sendJson({
+				version: "1",
+				type: "transcription",
+				content: userText,
+				correlation_id: correlationId,
+			});
+
 			if (state.sessionId) {
 				await addTurn({
 					sessionId: state.sessionId,

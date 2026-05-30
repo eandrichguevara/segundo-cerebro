@@ -1445,6 +1445,50 @@ Comandos del proyecto (`package.json` en `backend/`):
 
 Decisiones marcadas como "MVP" o "Fase 1" son temporales. Las invariantes de negocio (doble vía, voz‑first, mono‑usuario) son permanentes.
 
+## Display estructurado (renderizado visual de respuestas)
+
+Para mejorar la legibilidad de las respuestas, el sistema soporta dos capas complementarias de formateo visual.
+
+### Capa 1 — Emojis en texto conversacional
+
+Los prompts del fast lane y slow lane instruyen al LLM a usar emojis en los mensajes de texto:
+
+- Prioridad: 🔴 alta, 🟡 media, 🟢 baja
+- Estados: ⏳ pendiente, 🔄 en progreso, ✅ completado, ⏰ pospuesto, ❌ cancelado
+- Listas: 📋 título, ☐ item sin check, ☑ item con check
+- Objetivos: 🎯 activo, ⏸️ pausado, 🏆 completado
+- Eventos: 📅 título, 🕐 hora, 📍 ubicación, 🔄 recurrencia
+- Memorias: 🧠
+
+### Capa 2 — Display estructurado (renderizado nativo en Flutter)
+
+La acción `respond` puede incluir `display` en su payload con entidades estructuradas para renderizado nativo.
+
+**Tipos** (`backend/src/types/display.ts`):
+- `TaskDisplay`: type, title, priority (high|medium|low), status, dueDate?
+- `ListDisplay`: type, title, items[{content, quantity?, checked}]
+- `ObjectiveDisplay`: type, title, status (active|paused|completed|cancelled), deadline?
+- `EventDisplay`: type, title, startTime, endTime?, location?, recurrence?, category?
+- `MemoryDisplay`: type, content
+
+**Flujo**: LLM genera `display` en `respond` → worker envía mensaje WS `display` → Flutter `displayStream` → widgets nativos (`TaskCard`, `ListCard`, `ObjectiveCard`, `EventCard`, `MemoryCard`).
+
+**Widgets Flutter** (`appmovil/lib/widgets/display_cards.dart`):
+- `TaskCard`: barra lateral 🔴🟡🟢, badge de estado, fecha opcional
+- `ListCard`: items con ☐/☑, barra de progreso, contador
+- `ObjectiveCard`: barra lateral según estado, badge, deadline
+- `EventCard`: hora, ubicación, recurrencia, badge de categoría
+- `MemoryCard`: contenido en itálica con 🧠
+- `StatusBadge`: badge reutilizable por estado
+
+**Historial persistente** (Flutter): el chat usa `ListView.builder` con `ChatItem` sellado (TextItem, DisplayItem, ProcessingItem). El historial persiste entre sesiones via `shared_preferences` (JSON, max 200 items). No se borra al iniciar nuevo turno.
+
+### Mensaje WebSocket `display`
+
+```
+{ "version": "1", "type": "display", "entities": [...], "correlation_id": "..." }
+```
+
 ## Health checks y métricas mínimas
 
 - **Endpoint**: `GET /health` devuelve `{ status: "ok"|"degraded", timestamp: "<ISO 8601>", database: "connected"|"disconnected", jobs: { pending, processing, completed, failed } }` y verifica conexión a PostgreSQL.
@@ -1688,6 +1732,26 @@ Cada vez que se realice una modificación al proyecto (agregar funcionalidad, co
 - [x] Timeout de seguridad (30s) en estado processing
 - [x] Manejo de errores del servidor (transición a idle)
 - [x] Smoke tests
+
+#### Display estructurado y emojis (formato visual de respuestas)
+
+- **Backend**:
+  - [x] `types/display.ts`: tipos DisplayEntity compartidos (TaskDisplay, ListDisplay, ObjectiveDisplay, EventDisplay, MemoryDisplay)
+  - [x] `action-handlers.ts`: handleRespond acepta `display` opcional en payload
+  - [x] `fast-lane-system.ts`: prompt con instrucciones de emojis (🔴🟡🟢✅☐📅🎯🧠)
+  - [x] `slow-lane-system.ts`: prompt con emojis + documentación de display estructurado
+  - [x] `slow-lane-actions.ts`: schema de display en acción respond
+  - [x] `format-response.ts`: textos de fallback con emojis por tipo de acción
+  - [x] `slow-lane-processor.ts`: envía display como mensaje WebSocket `display` separado
+- **Flutter**:
+  - [x] `models/display_entity.dart`: modelos Dart sellados con fromJson
+  - [x] `models/chat_item.dart`: ChatItem sellado (TextItem, DisplayItem, ProcessingItem)
+  - [x] `widgets/display_cards.dart`: widgets nativos (TaskCard con barra de prioridad, ListCard con ☐/☑, ObjectiveCard, EventCard, MemoryCard, StatusBadge)
+  - [x] `theme/app_theme.dart`: colores de prioridad, estado, emojis
+  - [x] `ws_message.dart`: clase DisplayMessage para mensaje `display`
+  - [x] `websocket_service.dart`: displayStream para entidades estructuradas, parseo de action_result y display message
+  - [x] `home_screen.dart`: ListView.builder con items mixtos, historial persistente con shared_preferences, scroll automático
+  - [x] `pubspec.yaml`: agregado shared_preferences
 
 #### Documentación
 

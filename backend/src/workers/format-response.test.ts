@@ -30,7 +30,7 @@ describe("formatActionResponse - query_list", () => {
 			],
 		});
 		expect(result).toBe(
-			'En la lista "Lista del supermercado" tenés: Tomates (2 kg), Lechuga (1 unidad)',
+			'📋 "Lista del supermercado"\n☐ Tomates (2 kg)\n☐ Lechuga (1 unidad)',
 		);
 	});
 
@@ -43,10 +43,10 @@ describe("formatActionResponse - query_list", () => {
 				{ content: "Leche", checked: false },
 			],
 		});
-		expect(result).toBe('En la lista "Lista simple" tenés: Pan, Leche');
+		expect(result).toBe('📋 "Lista simple"\n☐ Pan\n☐ Leche');
 	});
 
-	it("muestra items checked con ✓", () => {
+	it("muestra items checked con ☑", () => {
 		const result = formatActionResponse("query_list", true, {
 			id: "list-1",
 			title: "Compra",
@@ -55,7 +55,7 @@ describe("formatActionResponse - query_list", () => {
 				{ content: "Lechuga", checked: false },
 			],
 		});
-		expect(result).toBe('En la lista "Compra" tenés: ✓ Tomates, Lechuga');
+		expect(result).toBe('📋 "Compra"\n☑ Tomates\n☐ Lechuga');
 	});
 
 	it("fallback si falta title o items", () => {
@@ -73,7 +73,7 @@ describe("formatActionResponse - list actions", () => {
 			title: "Supermercado",
 			items: [{ content: "Pan" }, { content: "Leche" }],
 		});
-		expect(result).toBe('Creé la lista "Supermercado" con 2 items');
+		expect(result).toBe('📋 Creé la lista "Supermercado" con 2 items');
 	});
 
 	it("create_list sin items", () => {
@@ -82,7 +82,7 @@ describe("formatActionResponse - list actions", () => {
 			title: "Vacía",
 			items: [],
 		});
-		expect(result).toBe('Creé la lista "Vacía"');
+		expect(result).toBe('📋 Creé la lista "Vacía"');
 	});
 
 	it("add_list_items", () => {
@@ -90,27 +90,27 @@ describe("formatActionResponse - list actions", () => {
 			id: "list-1",
 			items: [{ content: "Pan" }, { content: "Leche" }, { content: "Huevos" }],
 		});
-		expect(result).toBe("Agregué 3 items a la lista");
+		expect(result).toBe("📋 Agregué 3 items a la lista");
 	});
 
 	it("check_list_item", () => {
 		const result = formatActionResponse("check_list_item", true, {});
-		expect(result).toBe("El item fue marcado como completado");
+		expect(result).toBe("☑ El item fue marcado como completado");
 	});
 
 	it("uncheck_list_item", () => {
 		const result = formatActionResponse("uncheck_list_item", true, {});
-		expect(result).toBe("Desmarqué el item de la lista");
+		expect(result).toBe("☐ Desmarqué el item de la lista");
 	});
 
 	it("complete_list", () => {
 		const result = formatActionResponse("complete_list", true, {});
-		expect(result).toBe("La lista fue marcada como completada");
+		expect(result).toBe("✅ La lista fue marcada como completada");
 	});
 
 	it("cancel_list", () => {
 		const result = formatActionResponse("cancel_list", true, {});
-		expect(result).toBe("La lista fue cancelada");
+		expect(result).toBe("❌ La lista fue cancelada");
 	});
 });
 
@@ -122,7 +122,7 @@ describe("formatActionResponse - task actions", () => {
 			priority: "high",
 		});
 		expect(result).toBe(
-			'Creé la tarea "Revisar presupuesto" con prioridad high',
+			'🔴 Creé la tarea "Revisar presupuesto" con prioridad high',
 		);
 	});
 
@@ -136,7 +136,7 @@ describe("formatActionResponse - task actions", () => {
 
 	it("start_task", () => {
 		const result = formatActionResponse("start_task", true, {});
-		expect(result).toBe("La tarea fue iniciada");
+		expect(result).toBe("🔄 La tarea fue iniciada");
 	});
 
 	it("update_task con título", () => {
@@ -144,7 +144,7 @@ describe("formatActionResponse - task actions", () => {
 			id: "task-1",
 			title: "Tarea actualizada",
 		});
-		expect(result).toBe('Actualicé la tarea "Tarea actualizada"');
+		expect(result).toBe('📝 Actualicé la tarea "Tarea actualizada"');
 	});
 
 	it("complete_task con título", () => {
@@ -152,12 +152,12 @@ describe("formatActionResponse - task actions", () => {
 			id: "task-1",
 			title: "Revisar presupuesto",
 		});
-		expect(result).toBe('Marcé "Revisar presupuesto" como completada');
+		expect(result).toBe('✅ Marcé "Revisar presupuesto" como completada');
 	});
 
 	it("cancel_task", () => {
 		const result = formatActionResponse("cancel_task", true, {});
-		expect(result).toBe("La tarea fue cancelada");
+		expect(result).toBe("❌ La tarea fue cancelada");
 	});
 
 	it("postpone_task con fecha", () => {
@@ -175,7 +175,7 @@ describe("formatActionResponse - objective actions", () => {
 			id: "obj-1",
 			title: "Ahorrar para vacaciones",
 		});
-		expect(result).toBe('Creé el objetivo "Ahorrar para vacaciones"');
+		expect(result).toBe('🎯 Creé el objetivo "Ahorrar para vacaciones"');
 	});
 
 	it("update_objective", () => {
@@ -183,12 +183,12 @@ describe("formatActionResponse - objective actions", () => {
 			id: "obj-1",
 			title: "Nuevo título",
 		});
-		expect(result).toBe('Actualicé el objetivo "Nuevo título"');
+		expect(result).toBe('📝 Actualicé el objetivo "Nuevo título"');
 	});
 
 	it("complete_objective", () => {
 		const result = formatActionResponse("complete_objective", true, {});
-		expect(result).toBe("El objetivo fue marcado como completado");
+		expect(result).toBe("🏆 El objetivo fue marcado como completado");
 	});
 
 	it("cancel_objective con tareas en cascada", () => {
@@ -197,18 +197,18 @@ describe("formatActionResponse - objective actions", () => {
 			cancelled_tasks: 3,
 		});
 		expect(result).toBe(
-			"El objetivo fue cancelado junto con 3 tareas pendientes",
+			"❌ El objetivo fue cancelado junto con 3 tareas pendientes",
 		);
 	});
 
 	it("pause_objective", () => {
 		const result = formatActionResponse("pause_objective", true, {});
-		expect(result).toBe("El objetivo fue pausado");
+		expect(result).toBe("⏸️ El objetivo fue pausado");
 	});
 
 	it("resume_objective", () => {
 		const result = formatActionResponse("resume_objective", true, {});
-		expect(result).toBe("El objetivo fue reactivado");
+		expect(result).toBe("▶️ El objetivo fue reactivado");
 	});
 });
 
@@ -242,7 +242,7 @@ describe("formatActionResponse - query_list all lists", () => {
 			],
 		});
 		expect(result).toBe(
-			'Tenés 2 listas: "Supermercado" (shopping), "Despensa" (general)',
+			'Tenés 2 listas:\n📋 "Supermercado" (shopping)\n📋 "Despensa" (general)',
 		);
 	});
 
@@ -261,7 +261,7 @@ describe("formatActionResponse - query_list all lists", () => {
 			],
 		});
 		expect(result).toBe(
-			'Tenés una lista: "Supermercado" con: Tomates (2 kg), Lechuga',
+			'📋 "Supermercado"\n☐ Tomates (2 kg)\n☐ Lechuga',
 		);
 	});
 });
@@ -272,13 +272,13 @@ describe("formatActionResponse - memory", () => {
 			id: "mem-1",
 			content: "prefiere trabajar de mañana",
 		});
-		expect(result).toBe("Entendido, lo tengo en cuenta");
+		expect(result).toBe("🧠 Entendido, lo tengo en cuenta");
 	});
 });
 
 describe("formatActionResponse - fallback", () => {
 	it("acción desconocida retorna mensaje genérico", () => {
 		const result = formatActionResponse("unknown_action", true, {});
-		expect(result).toBe("Listo, ya está hecho");
+		expect(result).toBe("✅ Listo, ya está hecho");
 	});
 });
