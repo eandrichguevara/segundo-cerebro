@@ -8,10 +8,11 @@ on:
 env:
   DOCKER_REGISTRY: docker.io
   IMAGE_NAME: ${{ secrets.DOCKER_USER }}/segundo-cerebro
+  IMAGE_NAME_WEB: ${{ secrets.DOCKER_USER }}/segundo-cerebro-web
 
 jobs:
   test:
-    name: Test & Lint
+    name: Test & Lint (backend)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -35,9 +36,33 @@ jobs:
       - run: pnpm test
       - run: pnpm lint
 
+  test-web:
+    name: Lint & Build (web)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm build
+
   build-and-push:
-    name: Build & Push Docker Image
-    needs: test
+    name: Build & Push Docker Images
+    needs: [test, test-web]
     runs-on: ubuntu-latest
 
     steps:
@@ -56,7 +81,7 @@ jobs:
         id: tag
         run: echo "tag=$(date +%Y%m%d-%H%M%S)-${{ github.sha }}" >> $GITHUB_OUTPUT
 
-      - name: Build and push
+      - name: Build and push backend
         uses: docker/build-push-action@v6
         with:
           context: backend
@@ -65,6 +90,18 @@ jobs:
           tags: |
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push web
+        uses: docker/build-push-action@v6
+        with:
+          context: web
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.IMAGE_NAME_WEB }}:latest
+            ${{ env.IMAGE_NAME_WEB }}:${{ steps.tag.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -112,7 +149,7 @@ jobs:
             # Firebase service account (si cambió)
             echo '${{ secrets.FCM_SERVICE_ACCOUNT }}' > fcm-service-account.json
 
-            # Pull latest image
+            # Pull latest images
             docker compose -f docker-compose.prod.yml pull
 
             # Apply migrations

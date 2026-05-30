@@ -1186,6 +1186,7 @@ backend/
     schema.prisma   # Modelos de base de datos
     seed.ts         # Datos iniciales (estados, categorías)
 appmovil/           # App Flutter (cliente de voz)
+web/                # Dashboard web (Next.js + shadcn/ui, puerto 3001)
 deploy/             # Despliegue (docker-compose.prod.yml, nginx)
 ```
 

@@ -57,6 +57,27 @@ services:
     labels:
       - "traefik.enable=false"
 
+  web:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_USER}/segundo-cerebro-web:${IMAGE_TAG:-latest}
+    container_name: sc-web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      API_URL: http://backend:3000
+    networks:
+      - sc-net
+
   nginx:
     image: nginx:alpine
     container_name: sc-nginx
@@ -69,6 +90,7 @@ services:
       - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - backend
+      - web
     deploy:
       resources:
         limits:
