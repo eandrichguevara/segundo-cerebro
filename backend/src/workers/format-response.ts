@@ -100,7 +100,14 @@ export function formatActionResponse(
 		case "create_task": {
 			const title = payload.title as string | undefined;
 			const priority = payload.priority as string | undefined;
-			const priorityEmoji = priority === "high" ? "🔴" : priority === "medium" ? "🟡" : priority === "low" ? "🟢" : "";
+			const priorityEmoji =
+				priority === "high"
+					? "🔴"
+					: priority === "medium"
+						? "🟡"
+						: priority === "low"
+							? "🟢"
+							: "";
 			const emojiPrefix = priorityEmoji ? `${priorityEmoji} ` : "";
 			const parts = [title ? `"${title}"` : "la tarea"];
 			if (priority) parts.push(`prioridad ${priority}`);

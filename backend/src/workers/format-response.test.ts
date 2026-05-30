@@ -260,9 +260,7 @@ describe("formatActionResponse - query_list all lists", () => {
 				},
 			],
 		});
-		expect(result).toBe(
-			'📋 "Supermercado"\n☐ Tomates (2 kg)\n☐ Lechuga',
-		);
+		expect(result).toBe('📋 "Supermercado"\n☐ Tomates (2 kg)\n☐ Lechuga');
 	});
 });
 

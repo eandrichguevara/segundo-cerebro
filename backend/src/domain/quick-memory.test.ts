@@ -1,9 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type QuickMemoryData, formatForPrompt, get, isEmpty, update } from "./quick-memory.js";
+import {
+	type QuickMemoryData,
+	formatForPrompt,
+	get,
+	isEmpty,
+	update,
+} from "./quick-memory.js";
 
 describe("quick-memory", () => {
 	const sampleData: QuickMemoryData = {
-		whoAmI: "Emilio, desarrollador fullstack. Valora la eficiencia y la claridad.",
+		whoAmI:
+			"Emilio, desarrollador fullstack. Valora la eficiencia y la claridad.",
 		topData: {
 			tasks: ["Revisar presupuesto (high)", "Comprar materiales (medium)"],
 			objectives: ["Ahorrar $5000 para vacaciones"],
@@ -117,7 +124,10 @@ describe("quick-memory", () => {
 		const longData: QuickMemoryData = {
 			whoAmI: "Emilio, desarrollador.",
 			topData: {
-				tasks: Array.from({ length: 20 }, (_, i) => `Task ${i} (high priority)`),
+				tasks: Array.from(
+					{ length: 20 },
+					(_, i) => `Task ${i} (high priority)`,
+				),
 				objectives: ["Objective 1"],
 				lists: ["List 1"],
 				events: ["Event 1"],

@@ -46,42 +46,42 @@ export function formatForPrompt(): string {
 	const objectives = current.topData.objectives;
 	const lists = current.topData.lists;
 	const events = current.topData.events;
-	if (tasks.length > 0) topItems.push("Tareas: " + tasks.join(", "));
+	if (tasks.length > 0) topItems.push(`Tareas: ${tasks.join(", ")}`);
 	if (objectives.length > 0)
-		topItems.push("Objetivos: " + objectives.join(", "));
-	if (lists.length > 0) topItems.push("Listas: " + lists.join(", "));
-	if (events.length > 0) topItems.push("Eventos: " + events.join(", "));
+		topItems.push(`Objetivos: ${objectives.join(", ")}`);
+	if (lists.length > 0) topItems.push(`Listas: ${lists.join(", ")}`);
+	if (events.length > 0) topItems.push(`Eventos: ${events.join(", ")}`);
 
 	const todayItems: string[] = [];
 	const dueToday = current.todayContext.dueToday;
 	const inProgress = current.todayContext.inProgress;
-	if (dueToday.length > 0)
-		todayItems.push("Vence hoy: " + dueToday.join(", "));
+	if (dueToday.length > 0) todayItems.push(`Vence hoy: ${dueToday.join(", ")}`);
 	if (inProgress.length > 0)
-		todayItems.push("En progreso: " + inProgress.join(", "));
+		todayItems.push(`En progreso: ${inProgress.join(", ")}`);
 	if (current.todayContext.recentMentions)
-		todayItems.push("Reciente: " + current.todayContext.recentMentions);
+		todayItems.push(`Reciente: ${current.todayContext.recentMentions}`);
 
 	const hasRecentTopics = Boolean(current.recentTopics);
 
 	const hasContent =
-		hasWhoAmI || topItems.length > 0 || todayItems.length > 0 || hasRecentTopics;
+		hasWhoAmI ||
+		topItems.length > 0 ||
+		todayItems.length > 0 ||
+		hasRecentTopics;
 	if (!hasContent) return "";
 
 	lines.push("## Contexto rápido");
 
 	if (hasWhoAmI) {
-		lines.push("### Quién soy\n" + current.whoAmI);
+		lines.push(`### Quién soy\n${current.whoAmI}`);
 	}
 
-	if (topItems.length > 0)
-		lines.push("### Data clave\n" + topItems.join("\n"));
+	if (topItems.length > 0) lines.push(`### Data clave\n${topItems.join("\n")}`);
 
-	if (todayItems.length > 0)
-		lines.push("### Hoy\n" + todayItems.join("\n"));
+	if (todayItems.length > 0) lines.push(`### Hoy\n${todayItems.join("\n")}`);
 
 	if (hasRecentTopics) {
-		lines.push("### Temas recientes\n" + current.recentTopics);
+		lines.push(`### Temas recientes\n${current.recentTopics}`);
 	}
 
 	let result = lines.join("\n\n");
@@ -100,7 +100,7 @@ function truncate(text: string, maxChars: number): string {
 	const nonEssential: string[] = [];
 
 	for (const s of sections) {
-		const prefixed = s.startsWith("### ") ? s : "### " + s;
+		const prefixed = s.startsWith("### ") ? s : `### ${s}`;
 		if (
 			prefixed.startsWith("### Quién soy") ||
 			prefixed.startsWith("### Data clave")
@@ -114,14 +114,12 @@ function truncate(text: string, maxChars: number): string {
 	let combined = essential.join("\n\n");
 
 	for (const s of nonEssential) {
-		const candidate = combined ? combined + "\n\n" + s : s;
+		const candidate = combined ? `${combined}\n\n${s}` : s;
 		if (candidate.length <= maxChars) {
 			combined = candidate;
 		} else {
 			const firstLine = s.split("\n")[0] ?? "";
-			const withSummary = combined
-				? combined + "\n\n" + firstLine
-				: firstLine;
+			const withSummary = combined ? `${combined}\n\n${firstLine}` : firstLine;
 			if (withSummary.length <= maxChars) {
 				combined = withSummary;
 			}
@@ -130,7 +128,7 @@ function truncate(text: string, maxChars: number): string {
 	}
 
 	if (combined.length > maxChars) {
-		combined = combined.substring(0, maxChars - 3) + "...";
+		combined = `${combined.substring(0, maxChars - 3)}...`;
 	}
 
 	return combined;

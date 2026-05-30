@@ -2,6 +2,7 @@ import { env } from "../config/env.js";
 import { logger } from "../config/logger.js";
 import { type Result, err, ok } from "../types/result.js";
 import { openai } from "./client.js";
+import { SLOW_LANE_ACTIONS_PROMPT } from "./prompts/slow-lane-actions.js";
 
 export enum LlmError {
 	TIMEOUT = "LLM_TIMEOUT",
@@ -35,7 +36,10 @@ export async function extractActions(
 		const messages: Array<{
 			role: "system" | "user" | "assistant";
 			content: string;
-		}> = [{ role: "system", content: context.systemPrompt }];
+		}> = [
+			{ role: "system", content: context.systemPrompt },
+			{ role: "system", content: SLOW_LANE_ACTIONS_PROMPT },
+		];
 
 		if (context.conversationTurns) {
 			messages.push({
@@ -87,7 +91,7 @@ export async function extractActions(
 				model: env.OPENAI_SLOW_MODEL,
 				messages,
 				max_completion_tokens: env.SLOW_LANE_MAX_TOKENS,
-				temperature: 1,
+				reasoning_effort: "minimal",
 				response_format: { type: "json_object" },
 			},
 			{ timeout: 30_000 },

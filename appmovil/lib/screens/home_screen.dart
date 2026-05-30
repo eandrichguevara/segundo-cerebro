@@ -552,7 +552,7 @@ class _HomeScreenState extends State<HomeScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Escribiendo',
+              'Escuchando...',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.6),
                 fontSize: 14,

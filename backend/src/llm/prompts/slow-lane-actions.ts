@@ -2,161 +2,186 @@ export const SLOW_LANE_ACTIONS_PROMPT = `
 ## Acciones disponibles
 
 ### respond
-Respondé al usuario con texto natural usando la información del contexto (tareas, listas, objetivos, memorias).
-Usá esta acción para preguntas, resúmenes, cruces de datos e insights.
+Respondé al usuario con texto natural usando la información del contexto (tareas, listas, objetivos, eventos, memorias).
+Usá esta acción para preguntas, resúmenes, cruces de datos, insights y confirmaciones de acciones CRUD.
 
-Payoad:
-- messages: string[] (requerido, array de mensajes naturales en español)
+Payload:
+- messages: string[] (requerido, array de mensajes naturales en español, separados por tema)
 - display: array opcional de entidades estructuradas para renderizado visual
 
-El campo \`display\` puede contener los siguientes tipos de entidades:
+El campo \`display\` puede contener:
+- task: {type:"task", title, priority:"high"|"medium"|"low", status, dueDate?:ISO8601}
+- list: {type:"list", title, items:[{content, quantity?, checked}]}
+- objective: {type:"objective", title, status, deadline?:ISO8601}
+- event: {type:"event", title, startTime:ISO8601, endTime?:ISO8601, location?, recurrence?, category?}
+- memory: {type:"memory", content}
 
-- **task**: {type:"task", title, priority:"high"|"medium"|"low", status:"pending"|"in_progress"|"completed"|"postponed"|"cancelled", dueDate?:ISO8601}
-- **list**: {type:"list", title, items:[{content, quantity?, checked}]}
-- **objective**: {type:"objective", title, status:"active"|"paused"|"completed"|"cancelled", deadline?:ISO8601}
-- **event**: {type:"event", title, startTime:ISO8601, endTime?:ISO8601, location?, recurrence?, category?}
-- **memory**: {type:"memory", content}
-
-Ejemplo con display:
+Ejemplo:
 {
   "action": "respond",
   "payload": {
-    "messages": ["Tenes 3 tareas pendientes.", "La mas urgente es 🔴 revisar el presupuesto."],
+    "messages": ["Tenés 3 tareas pendientes.", "La más urgente es 🔴 revisar presupuesto."],
     "display": [
-      { "type": "task", "title": "Revisar presupuesto", "priority": "high", "status": "pending" },
-      { "type": "task", "title": "Comprar leche", "priority": "medium", "status": "pending" }
+      { "type": "task", "title": "Revisar presupuesto", "priority": "high", "status": "pending" }
     ]
   }
 }
 
-📌 Para consultas generales del tipo "dame información", "qué tengo", "cómo voy", "contame todo": incluí display entities de TODOS los tipos disponibles (task, objective, list, event, memory) en un solo respond. No fragmentes en múltiples acciones ni uses query_list para esto.
-
-### query_list
-Consulta el contenido de una lista existente sin modificarla.
-El sistema busca la lista por nombre (coincidencia parcial, sin distinguir mayúsculas).
+### store_memory
+Almacena una interacción significativa del usuario (preferencia, decisión, dato personal).
+No usar para preguntas informativas — eso va en \`respond\`.
 
 Payload:
-- list_title: string (requerido, nombre o parte del nombre de la lista)
-
-⚠️ Solo usar para consultas específicas de una lista por nombre. Para consultas generales sobre el estado del sistema, usá \`respond\` con display entities múltiples.
+- content: string (requerido, texto resumido de la interacción)
+- metadata: { interaction_type?: string, entities?: string[], context?: string } (opcional)
 
 Ejemplo:
 {
-  "action": "query_list",
+  "action": "store_memory",
   "payload": {
-    "list_title": "Lista del supermercado"
+    "content": "El usuario prefiere trabajar de mañana",
+    "metadata": {
+      "interaction_type": "preference_declaration",
+      "entities": ["tasks", "scheduling"]
+    }
   }
 }
 
-### create_list
-Crea una nueva lista (compra, ingredientes, tareas pendientes, etc.).
-El campo \`type\` es un string flexible: "shopping", "ingredients", "general", etc.
+### create_task
+Crea una nueva tarea.
 
 Payload:
 - title: string (requerido)
-- type: string (opcional, default "general")
+- description: string (opcional)
+- due_date: string ISO8601 (opcional)
+- objective_id: string UUID (opcional)
+- priority: "low" | "medium" | "high" (opcional, default "medium")
+- context: object (opcional, metadata estructurada)
+
+### start_task
+Inicia una tarea (transición a in_progress). Payload: { task_id: string UUID }
+
+### update_task
+Actualiza campos de una tarea. Solo modifica los campos provistos (patch).
+
+Payload: { task_id: string UUID, title?, description?, due_date?, objective_id?, priority?, context? }
+
+### complete_task
+Marca tarea como completada. Payload: { task_id: string UUID }
+
+### cancel_task
+Cancela una tarea (soft delete, irreversible). Payload: { task_id: string UUID }
+
+### postpone_task
+Pospone una tarea a otra fecha (transición a postponed).
+
+Payload: { task_id: string UUID, due_date: string ISO8601 }
+
+### create_objective
+Crea un nuevo objetivo.
+
+Payload: { title: string, description?: string, deadline?: string ISO8601 }
+
+### update_objective
+Actualiza campos de un objetivo (patch).
+
+Payload: { objective_id: string UUID, title?, description?, deadline? }
+
+### complete_objective
+Completa un objetivo. Requiere que todas sus tareas estén completed/cancelled.
+
+Payload: { objective_id: string UUID }
+
+### cancel_objective
+Cancela un objetivo y todas sus tareas pendientes en cascada.
+
+Payload: { objective_id: string UUID }
+
+### pause_objective
+Pausa un objetivo. Payload: { objective_id: string UUID }
+
+### resume_objective
+Reanuda un objetivo pausado. Payload: { objective_id: string UUID }
+
+### create_list
+Crea una nueva lista (compra, ingredientes, general, etc.).
+
+Payload:
+- title: string (requerido)
+- type: string (opcional, default "general", ej: "shopping", "ingredients")
 - description: string (opcional)
 - items: array de { content: string, quantity?: string } (opcional)
 
-Ejemplo:
-{
-  "action": "create_list",
-  "payload": {
-    "title": "Lista del supermercado",
-    "type": "shopping",
-    "items": [
-      { "content": "Tomates", "quantity": "2 kg" },
-      { "content": "Lechuga", "quantity": "1 unidad" }
-    ]
-  }
-}
-
 ### add_list_items
-Agrega uno o más items a una lista existente.
+Agrega items a una lista existente (siempre agrega, no reemplaza).
 
-Payload:
-- list_id: string (UUID, requerido)
-- items: array de { content: string, quantity?: string } (requerido)
-
-Ejemplo:
-{
-  "action": "add_list_items",
-  "payload": {
-    "list_id": "uuid-de-la-lista",
-    "items": [
-      { "content": "Pan", "quantity": "1 kg" }
-    ]
-  }
-}
+Payload: { list_id: string UUID, items: [{ content: string, quantity?: string }] }
 
 ### check_list_item
-Marca un item como completado por su índice en el array.
-
-Payload:
-- list_id: string (UUID, requerido)
-- item_index: number (índice 0-based, requerido)
-
-Ejemplo:
-{
-  "action": "check_list_item",
-  "payload": {
-    "list_id": "uuid-de-la-lista",
-    "item_index": 0
-  }
-}
+Marca un item como completado por su índice. Payload: { list_id: string UUID, item_index: number }
 
 ### uncheck_list_item
-Desmarca un item completado.
-
-Payload:
-- list_id: string (UUID, requerido)
-- item_index: number (índice 0-based, requerido)
-
-Ejemplo:
-{
-  "action": "uncheck_list_item",
-  "payload": {
-    "list_id": "uuid-de-la-lista",
-    "item_index": 1
-  }
-}
+Desmarca un item completado. Payload: { list_id: string UUID, item_index: number }
 
 ### complete_list
-Marca la lista como completada. Solo válido si todos los items están checked.
-
-Payload:
-- list_id: string (UUID, requerido)
-
-Ejemplo:
-{
-  "action": "complete_list",
-  "payload": {
-    "list_id": "uuid-de-la-lista"
-  }
-}
+Completa una lista (todos los items deben estar checked). Payload: { list_id: string UUID }
 
 ### cancel_list
-Cancela la lista (soft delete). Estado irreversible.
+Cancela una lista (soft delete, irreversible). Payload: { list_id: string UUID }
+
+### query_list
+Consulta el contenido de una lista por nombre (coincidencia parcial, case-insensitive).
+Solo usar para consultas explícitas de una lista específica.
+
+Payload: { list_title: string }
+
+### create_event
+Crea un evento (único o recurrente).
 
 Payload:
-- list_id: string (UUID, requerido)
+- title: string (requerido)
+- start_time: string ISO8601 (requerido)
+- end_time: string ISO8601 (opcional)
+- description: string (opcional)
+- location: string (opcional)
+- category: string (opcional, ej: "trabajo", "personal", "salud")
+- recurrence_rule: object (opcional) → { frequency: "daily"|"weekly"|"monthly"|"yearly", interval?: number, daysOfWeek?: number[], dayOfMonth?: number, monthOfYear?: number, endDate?: ISO8601, count?: number }
 
-Ejemplo:
-{
-  "action": "cancel_list",
-  "payload": {
-    "list_id": "uuid-de-la-lista"
-  }
-}
+### update_event
+Actualiza campos de un evento (patch).
+
+Payload: { event_id: string UUID, title?, description?, location?, category?, start_time?, end_time? }
+
+### delete_event
+Cancela un evento (soft delete, irreversible). Payload: { event_id: string UUID }
+
+### query_events
+Consulta eventos en un rango de fechas (incluye recurrentes y excepciones).
+
+Payload: { start_date?: string ISO8601, end_date?: string ISO8601 }
+
+### move_event_instance
+Mueve una instancia específica de evento. Si es recurrente, crea una excepción.
+
+Payload: { event_id: string UUID, new_start_time: string ISO8601, new_end_time?: string ISO8601, exception_date?: string ISO8601 }
+
+### update_recurrence_rule
+Modifica la regla de recurrencia de un evento recurrente.
+
+Payload: { event_id: string UUID, recurrence_rule: object }
+
+### link_task_event
+Vincula tareas con eventos (relación muchos-a-muchos).
+
+Payload: { task_ids: string|string[], event_ids: string|string[] }
+
+### unlink_task_event
+Desvincula tareas de eventos.
+
+Payload: { task_ids: string|string[], event_ids: string|string[] }
 
 ### update_quick_memory
-Actualiza la memoria rápida de la vía rápida con los datos más recientes de la base de datos.
-Usá esta acción después de crear, modificar o eliminar datos relevantes (tareas, objetivos, listas, eventos).
-No requiere payload.
+Actualiza la Quick Memory de la vía rápida. Sin payload requerido.
 
-Ejemplo:
-{
-  "action": "update_quick_memory",
-  "payload": {}
-}
+Payload: {}
 `.trim();
