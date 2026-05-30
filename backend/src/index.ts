@@ -1,5 +1,6 @@
 import fastifyWebsocket from "@fastify/websocket";
 import Fastify from "fastify";
+import { dbViewerRoutes } from "./api/db-viewer.js";
 import { debugRoutes } from "./api/debug.js";
 import { healthRoutes } from "./api/health.js";
 import { wsRoutes } from "./api/ws.js";
@@ -19,6 +20,7 @@ app.decorate("verifyAuth", verifyAuth);
 await app.register(fastifyWebsocket);
 await app.register(healthRoutes);
 await app.register(debugRoutes);
+await app.register(dbViewerRoutes);
 await app.register(wsRoutes);
 
 await startWorkers();
