@@ -352,7 +352,7 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 			const quickContext = formatForPrompt();
 			const fastLanePrompt = quickContext
 				? `${FAST_LANE_SYSTEM_PROMPT}\n\n${quickContext}`
-				: `${FAST_LANE_SYSTEM_PROMPT}\n\n## Contexto rápido\nNo hay contexto disponible aún. Si el usuario te pide que te presentes, respondé de forma breve como su asistente personal de productividad.`;
+				: `${FAST_LANE_SYSTEM_PROMPT}\n\n## Contexto rápido\nNo hay contexto disponible en este momento. Respondé de forma breve y neutral, sin especular sobre si existen o no datos del usuario. Si el usuario pregunta por su información, indicá que lo estás verificando.`;
 			const abortController = new AbortController();
 			const fastResponsePromise = getFastResponse(
 				userText,

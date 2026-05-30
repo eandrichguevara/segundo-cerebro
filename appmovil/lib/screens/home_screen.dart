@@ -28,19 +28,28 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
   WsConnectionState _connectionState = WsConnectionState.disconnected;
   AudioServiceState _audioState = AudioServiceState.idle;
   String? _lastError;
   final List<ChatItem> _history = [];
-  bool _isProcessing = false;
+
   final _scrollController = ScrollController();
   final _uuid = const Uuid();
   bool _historyLoaded = false;
+  final List<ChatItem> _messageQueue = [];
+  bool _isAnimatingMessage = false;
+  String? _typingIndicatorId;
+  late AnimationController _thinkingController;
 
   @override
   void initState() {
     super.initState();
+    _thinkingController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    );
     _loadHistory();
 
     widget.wsService.stateStream.listen((state) {
@@ -51,7 +60,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
     widget.audioService.stateStream.listen((state) {
       if (mounted) {
-        setState(() => _audioState = state);
+        setState(() {
+          _audioState = state;
+          if (state == AudioServiceState.recording) {
+            _cancelQueue();
+          }
+          if (state == AudioServiceState.processing) {
+            if (!_thinkingController.isAnimating) {
+              _thinkingController.repeat(reverse: true);
+            }
+            _showTyping();
+          } else {
+            if (_thinkingController.isAnimating) {
+              _thinkingController.stop();
+              _thinkingController.reset();
+            }
+          }
+        });
       }
     });
 
@@ -66,6 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     widget.wsService.transcriptionStream.listen((text) {
       if (mounted) {
+        _hideTyping();
         setState(() {
           _history.add(TextChatItem(
             id: _uuid.v4(),
@@ -82,34 +108,27 @@ class _HomeScreenState extends State<HomeScreen> {
     widget.wsService.textStream.listen((text) {
       if (mounted) {
         if (text == 'Buscando...') return;
-        setState(() {
-          _history.add(TextChatItem(
-            id: _uuid.v4(),
-            content: text,
-            isUser: false,
-          ));
-          _trimHistory();
-        });
-        _saveHistory();
-        _scrollToBottom();
+        _enqueueMessage(TextChatItem(
+          id: _uuid.v4(),
+          content: text,
+          isUser: false,
+        ));
       }
     });
 
     widget.wsService.displayStream.listen((entities) {
       if (mounted && entities.isNotEmpty) {
-        setState(() {
-          _history.add(DisplayChatItem(id: _uuid.v4(), entities: entities));
-          _trimHistory();
-        });
-        _saveHistory();
-        _scrollToBottom();
+        _enqueueMessage(DisplayChatItem(id: _uuid.v4(), entities: entities));
       }
     });
 
     widget.wsService.processingStream.listen((isProcessing) {
       if (mounted) {
-        setState(() => _isProcessing = isProcessing);
-        if (!isProcessing) _scrollToBottom();
+        if (isProcessing) {
+          _showTyping();
+        } else {
+          _hideTyping();
+        }
       }
     });
 
@@ -127,6 +146,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _thinkingController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -154,10 +174,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _saveHistory() async {
-    if (_history.isEmpty) return;
+    final items = _history.where((e) => e is! ProcessingChatItem).toList();
+    if (items.isEmpty) return;
     final prefs = await SharedPreferences.getInstance();
-    final json =
-        jsonEncode(_history.map((e) => _chatItemToJson(e)).toList());
+    final json = jsonEncode(items.map((e) => _chatItemToJson(e)).toList());
     await prefs.setString(_kHistoryKey, json);
   }
 
@@ -232,46 +252,106 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _clearHistory() {
+    _cancelQueue();
     setState(() => _history.clear());
     SharedPreferences.getInstance()
         .then((prefs) => prefs.remove(_kHistoryKey));
   }
 
+  void _cancelQueue() {
+    _messageQueue.clear();
+    _isAnimatingMessage = false;
+    _hideTyping();
+  }
+
+  void _showTyping() {
+    if (_typingIndicatorId != null) return;
+    final id = _uuid.v4();
+    _typingIndicatorId = id;
+    setState(() {
+      _history.add(ProcessingChatItem(id: id));
+      _trimHistory();
+    });
+    _scrollToBottom();
+  }
+
+  void _hideTyping() {
+    if (_typingIndicatorId == null) return;
+    final id = _typingIndicatorId!;
+    _typingIndicatorId = null;
+    setState(() {
+      _history.removeWhere((h) => h.id == id);
+    });
+  }
+
+  void _enqueueMessage(ChatItem item) {
+    _messageQueue.add(item);
+    if (!_isAnimatingMessage) {
+      _processQueue();
+    }
+  }
+
+  Future<void> _processQueue() async {
+    if (_messageQueue.isEmpty) {
+      _isAnimatingMessage = false;
+      if (_audioState == AudioServiceState.processing) _showTyping();
+      return;
+    }
+
+    _isAnimatingMessage = true;
+
+    _hideTyping();
+
+    final typingId = _uuid.v4();
+    setState(() {
+      _typingIndicatorId = typingId;
+      _history.add(ProcessingChatItem(id: typingId));
+      _trimHistory();
+    });
+    _scrollToBottom();
+
+    await Future.delayed(const Duration(milliseconds: 1500));
+
+    if (_messageQueue.isEmpty) {
+      _hideTyping();
+      _isAnimatingMessage = false;
+      if (_audioState == AudioServiceState.processing) _showTyping();
+      return;
+    }
+
+    final message = _messageQueue.removeAt(0);
+    _hideTyping();
+    setState(() {
+      _history.add(message);
+      _trimHistory();
+    });
+    _saveHistory();
+    _scrollToBottom();
+
+    await Future.delayed(const Duration(milliseconds: 400));
+
+    _processQueue();
+  }
+
   String get _statusText {
     return switch (_connectionState) {
       WsConnectionState.disconnected => 'Desconectado',
-      WsConnectionState.connecting => 'Conectando...',
-      WsConnectionState.connected => 'Conectado',
-      WsConnectionState.authenticating => 'Autenticando...',
-      WsConnectionState.authenticated => _audioStateText,
-    };
-  }
-
-  String get _audioStateText {
-    return switch (_audioState) {
-      AudioServiceState.idle => 'Tocá para hablar',
-      AudioServiceState.recording => 'Escuchando...',
-      AudioServiceState.processing => 'Procesando...',
-      AudioServiceState.playing => 'Hablando...',
+      WsConnectionState.connecting ||
+      WsConnectionState.connected ||
+      WsConnectionState.authenticating =>
+        'Conectando...',
+      WsConnectionState.authenticated => 'Conectado',
     };
   }
 
   Color get _statusColor {
     return switch (_connectionState) {
       WsConnectionState.disconnected => Colors.grey,
-      WsConnectionState.connecting || WsConnectionState.authenticating =>
+      WsConnectionState.connecting ||
+      WsConnectionState.connected ||
+      WsConnectionState.authenticating =>
         Colors.orange,
-      WsConnectionState.connected => Colors.blue,
-      WsConnectionState.authenticated => _audioStateColor,
-    };
-  }
-
-  Color get _audioStateColor {
-    return switch (_audioState) {
-      AudioServiceState.idle => Colors.green,
-      AudioServiceState.recording => Colors.red,
-      AudioServiceState.processing => Colors.orange,
-      AudioServiceState.playing => Colors.green,
+      WsConnectionState.authenticated => Colors.green,
     };
   }
 
@@ -358,7 +438,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: CircularProgressIndicator(color: Colors.white24));
     }
 
-    if (_history.isEmpty && !_isProcessing) {
+    if (_history.isEmpty) {
       return Center(
         child: Text(
           'Tocá para hablar',
@@ -373,31 +453,47 @@ class _HomeScreenState extends State<HomeScreen> {
     return ListView.builder(
       controller: _scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      itemCount: _history.length + (_isProcessing ? 1 : 0),
+      itemCount: _history.length,
       itemBuilder: (context, index) {
-        if (index == _history.length && _isProcessing) {
-          return _buildProcessingIndicator();
-        }
         return _buildChatItem(_history[index]);
       },
     );
   }
 
   Widget _buildChatItem(ChatItem item) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: switch (item) {
-        TextChatItem i => _buildTextBubble(i.content, i.isUser),
-        DisplayChatItem i => Align(
-            alignment: Alignment.centerLeft,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children:
-                  i.entities.map((e) => DisplayEntityCard(entity: e)).toList(),
-            ),
+    final isUser = item is TextChatItem ? item.isUser : false;
+    final slideX = isUser ? 30.0 : -30.0;
+
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(item.id),
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(slideX * (1 - value), 0),
+            child: child,
           ),
-        ProcessingChatItem _ => _buildProcessingIndicator(),
+        );
       },
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: switch (item) {
+          TextChatItem i => _buildTextBubble(i.content, i.isUser),
+          DisplayChatItem i => Align(
+              alignment: Alignment.centerLeft,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: i.entities
+                    .map((e) => DisplayEntityCard(entity: e))
+                    .toList(),
+              ),
+            ),
+          ProcessingChatItem _ => _buildProcessingIndicator(),
+        },
+      ),
     );
   }
 
@@ -435,28 +531,37 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildProcessingIndicator() {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: Colors.white38,
-            ),
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.8,
+        ),
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.08),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.zero,
+            topRight: Radius.circular(16),
+            bottomLeft: Radius.circular(16),
+            bottomRight: Radius.circular(16),
           ),
-          SizedBox(width: 8),
-          Text(
-            'Escribiendo...',
-            style: TextStyle(
-              color: Colors.white38,
-              fontSize: 13,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Escribiendo',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: 14,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(width: 4),
+            const _AnimatedTypingDots(),
+          ],
+        ),
       ),
     );
   }
@@ -501,19 +606,95 @@ class _HomeScreenState extends State<HomeScreen> {
                       blurRadius: 16,
                       spreadRadius: 2,
                     ),
+                  if (_audioState == AudioServiceState.processing)
+                    BoxShadow(
+                      color: _userBubbleColor.withValues(alpha: 0.3),
+                      blurRadius: 14,
+                      spreadRadius: 1,
+                    ),
                 ],
               ),
-              child: Icon(
-                _audioState == AudioServiceState.recording
-                    ? Icons.stop
-                    : Icons.mic,
-                color: Colors.white,
-                size: 28,
-              ),
+              child: switch (_audioState) {
+                AudioServiceState.recording => const Icon(
+                    Icons.stop,
+                    color: Colors.white,
+                    size: 28,
+                  ),
+                AudioServiceState.processing => AnimatedBuilder(
+                    animation: _thinkingController,
+                    builder: (context, _) {
+                      final scale =
+                          1.0 + (_thinkingController.value * 0.08);
+                      return Transform.scale(
+                        scale: scale,
+                        child: const Icon(
+                          Icons.auto_awesome,
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                      );
+                    },
+                  ),
+                _ => const Icon(Icons.mic, color: Colors.white, size: 28),
+              },
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _AnimatedTypingDots extends StatefulWidget {
+  const _AnimatedTypingDots();
+
+  @override
+  State<_AnimatedTypingDots> createState() => _AnimatedTypingDotsState();
+}
+
+class _AnimatedTypingDotsState extends State<_AnimatedTypingDots>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (index) {
+            final delay = index * 0.2;
+            final t = (_controller.value - delay).clamp(0.0, 1.0);
+            final opacity = (t < 0.5 ? t * 2 : 2 - t * 2).clamp(0.3, 1.0);
+            return Padding(
+              padding: EdgeInsets.only(right: index < 2 ? 2 : 0),
+              child: Text(
+                '•',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6 * opacity),
+                  fontSize: 16,
+                ),
+              ),
+            );
+          }),
+        );
+      },
     );
   }
 }

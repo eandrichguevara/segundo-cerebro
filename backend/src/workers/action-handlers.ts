@@ -1625,10 +1625,7 @@ function buildRecentTopics(
 	return sorted.length > 0 ? sorted.join(", ") : "";
 }
 
-export async function handleUpdateQuickMemory(
-	payload: Record<string, unknown>,
-	correlationId: string,
-): Promise<ActionResult> {
+export async function initializeQuickMemory(): Promise<void> {
 	try {
 		const now = new Date();
 		const weekEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -1718,8 +1715,20 @@ export async function handleUpdateQuickMemory(
 			updatedAt: now,
 		});
 
+		logger.info("Quick memory initialized");
+	} catch (error) {
+		logger.error({ error }, "Error initializing quick memory");
+	}
+}
+
+export async function handleUpdateQuickMemory(
+	payload: Record<string, unknown>,
+	correlationId: string,
+): Promise<ActionResult> {
+	try {
+		await initializeQuickMemory();
 		return actionResult(true, "update_quick_memory", correlationId, {
-			updated_at: now.toISOString(),
+			updated_at: new Date().toISOString(),
 		});
 	} catch (error) {
 		logger.error({ error, correlationId }, "Error updating quick memory");

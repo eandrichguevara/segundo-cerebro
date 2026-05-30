@@ -6,6 +6,7 @@ import { wsRoutes } from "./api/ws.js";
 import { verifyAuth } from "./auth/index.js";
 import { env } from "./config/env.js";
 import { logger, loggerConfig } from "./config/logger.js";
+import { initializeQuickMemory } from "./workers/action-handlers.js";
 import { startWorkers, stopWorkers } from "./workers/index.js";
 
 const app = Fastify({
@@ -21,6 +22,9 @@ await app.register(debugRoutes);
 await app.register(wsRoutes);
 
 await startWorkers();
+
+await initializeQuickMemory();
+logger.info("Quick memory initialized from database");
 
 try {
 	await app.listen({ port: env.PORT, host: env.HOST });

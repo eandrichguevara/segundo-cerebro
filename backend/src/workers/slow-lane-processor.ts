@@ -330,10 +330,17 @@ async function processJob(): Promise<void> {
 
 		// Send user-facing text — prefer respond.messages as granular chat
 		const hasCrudActions = otherResults.length > 0;
+		const hasRespondWithDisplay = respondResults.some((r) => {
+			const display = r.payload.display as
+				| Array<Record<string, unknown>>
+				| undefined;
+			return Array.isArray(display) && display.length > 0;
+		});
 		const shouldSkipRespond =
 			fastLaneResponse !== undefined &&
 			!hasCrudActions &&
-			respondResults.length > 0;
+			respondResults.length > 0 &&
+			!hasRespondWithDisplay;
 
 		if (shouldSkipRespond) {
 			logger.info(

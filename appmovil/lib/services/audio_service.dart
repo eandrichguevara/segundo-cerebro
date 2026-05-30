@@ -110,6 +110,8 @@ class AudioService {
       _processingTimeout?.cancel();
       _processingTimeout = null;
       _setState(AudioServiceState.idle);
+    } else if (message is ProcessingMessage) {
+      _setState(AudioServiceState.processing);
     }
   }
 
