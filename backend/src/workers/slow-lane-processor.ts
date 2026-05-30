@@ -65,7 +65,13 @@ async function formatActiveObjectives(): Promise<string> {
 		const objectives = await getActiveObjectives();
 		if (objectives.length === 0) return "";
 		return objectives
-			.map((o) => `- ${o.title} (${o.status}, id: ${o.id})`)
+			.map((o) => {
+				const parts = [o.status];
+				if (o.deadline)
+					parts.push(`deadline: ${o.deadline.toLocaleDateString("es-AR")}`);
+				parts.push(`id: ${o.id}`);
+				return `- 🎯 ${o.title} (${parts.join(", ")})`;
+			})
 			.join("\n");
 	} catch (error) {
 		logger.error({ error }, "Error fetching objectives");
@@ -78,10 +84,16 @@ async function formatActiveTasks(): Promise<string> {
 		const tasks = await getActiveTasks();
 		if (tasks.length === 0) return "";
 		return tasks
-			.map(
-				(t) =>
-					`- ${t.title} (${t.status}, id: ${t.id}${t.objectiveId ? `, objective: ${t.objectiveId}` : ""})`,
-			)
+			.map((t) => {
+				const priorityEmoji =
+					t.priority === "high" ? "🔴" : t.priority === "low" ? "🟢" : "🟡";
+				const parts = [t.status, `prioridad: ${t.priority ?? "medium"}`];
+				if (t.dueDate)
+					parts.push(`vence: ${t.dueDate.toLocaleDateString("es-AR")}`);
+				parts.push(`id: ${t.id}`);
+				if (t.objectiveId) parts.push(`objective: ${t.objectiveId}`);
+				return `- ${priorityEmoji} ${t.title} (${parts.join(", ")})`;
+			})
 			.join("\n");
 	} catch (error) {
 		logger.error({ error }, "Error fetching tasks");
@@ -135,6 +147,69 @@ async function formatActiveLists(): Promise<string> {
 		logger.error({ error }, "Error fetching lists");
 		return "";
 	}
+}
+
+async function buildDisplayForTypes(
+	types: string[],
+): Promise<Array<Record<string, unknown>>> {
+	const display: Array<Record<string, unknown>> = [];
+
+	for (const type of types) {
+		if (type === "task") {
+			const tasks = await getActiveTasks();
+			for (const t of tasks) {
+				display.push({
+					type: "task",
+					title: t.title,
+					priority: t.priority ?? "medium",
+					status: t.status,
+					...(t.dueDate ? { dueDate: t.dueDate.toISOString() } : {}),
+				});
+			}
+		} else if (type === "objective") {
+			const objectives = await getActiveObjectives();
+			for (const o of objectives) {
+				display.push({
+					type: "objective",
+					title: o.title,
+					status: o.status,
+					...(o.deadline ? { deadline: o.deadline.toISOString() } : {}),
+				});
+			}
+		} else if (type === "list") {
+			const rawLists = await listRepository.getAllActive();
+			for (const l of rawLists) {
+				const items = listRepository.getItems(
+					l as Parameters<typeof listRepository.getItems>[0],
+				);
+				display.push({
+					type: "list",
+					title: l.title,
+					items: items.map((i) => ({
+						content: i.content,
+						quantity: i.quantity,
+						checked: i.checked,
+					})),
+				});
+			}
+		} else if (type === "event") {
+			const now = new Date();
+			const weekEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+			const events = await eventRepository.getEventsByDateRange(now, weekEnd);
+			for (const e of events) {
+				display.push({
+					type: "event",
+					title: e.title,
+					startTime: e.startTime.toISOString(),
+					...(e.endTime ? { endTime: e.endTime.toISOString() } : {}),
+					...(e.location ? { location: e.location } : {}),
+					...(e.category ? { category: e.category } : {}),
+				});
+			}
+		}
+	}
+
+	return display;
 }
 
 async function processJob(): Promise<void> {
@@ -425,6 +500,50 @@ async function processJob(): Promise<void> {
 						{ error, correlationId },
 						"Error guardando turno assistant",
 					);
+				});
+			}
+		}
+
+		// Safety net: supplement display with missing entity types for general info queries
+		// If context had multiple data types but LLM only responded with a subset,
+		// automatically add missing types to ensure comprehensive response
+		const contextTypes = new Set<string>();
+		if (activeTasks.trim()) contextTypes.add("task");
+		if (activeObjectives.trim()) contextTypes.add("objective");
+		if (activeLists.trim()) contextTypes.add("list");
+		if (upcomingEvents.trim()) contextTypes.add("event");
+
+		const respondedTypes = new Set<string>();
+		for (const rr of respondResults) {
+			const display = rr.payload.display as
+				| Array<Record<string, unknown>>
+				| undefined;
+			if (Array.isArray(display)) {
+				for (const entity of display) {
+					if (typeof entity.type === "string") respondedTypes.add(entity.type);
+				}
+			}
+		}
+
+		if (
+			!hasCrudActions &&
+			contextTypes.size > 1 &&
+			respondedTypes.size < contextTypes.size
+		) {
+			const missingTypes = [...contextTypes].filter(
+				(t) => !respondedTypes.has(t),
+			);
+			logger.info(
+				{ jobId, correlationId, missingTypes },
+				"Safety net: supplementing display with missing entity types",
+			);
+			const supplementaryDisplay = await buildDisplayForTypes(missingTypes);
+			if (supplementaryDisplay.length > 0 && sessionId) {
+				sendToSession(sessionId, {
+					version: "1",
+					type: "display",
+					entities: supplementaryDisplay,
+					correlation_id: correlationId,
 				});
 			}
 		}

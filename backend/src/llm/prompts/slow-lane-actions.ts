@@ -29,12 +29,16 @@ Ejemplo con display:
   }
 }
 
+📌 Para consultas generales del tipo "dame información", "qué tengo", "cómo voy", "contame todo": incluí display entities de TODOS los tipos disponibles (task, objective, list, event, memory) en un solo respond. No fragmentes en múltiples acciones ni uses query_list para esto.
+
 ### query_list
 Consulta el contenido de una lista existente sin modificarla.
 El sistema busca la lista por nombre (coincidencia parcial, sin distinguir mayúsculas).
 
 Payload:
 - list_title: string (requerido, nombre o parte del nombre de la lista)
+
+⚠️ Solo usar para consultas específicas de una lista por nombre. Para consultas generales sobre el estado del sistema, usá \`respond\` con display entities múltiples.
 
 Ejemplo:
 {
