@@ -1,4 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../config/logger.js", () => ({
+	logger: {
+		info: vi.fn(),
+		warn: vi.fn(),
+		error: vi.fn(),
+		debug: vi.fn(),
+		fatal: vi.fn(),
+		trace: vi.fn(),
+		child: vi.fn().mockReturnThis(),
+	},
+}));
+
 import {
 	type QuickMemoryData,
 	formatForPrompt,
