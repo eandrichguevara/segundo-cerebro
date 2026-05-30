@@ -112,16 +112,7 @@ class WebSocketService {
       case AudioEndResponse():
         _processingController.add(false);
         break;
-      case ActionResultMessage msg:
-        if (msg.action == 'respond') {
-          final displayRaw = msg.payload['display'];
-          if (displayRaw != null) {
-            final entities = parseDisplayList(displayRaw);
-            if (entities.isNotEmpty) {
-              _displayController.add(entities);
-            }
-          }
-        }
+      case ActionResultMessage _:
         break;
       case TranscriptionMessage msg:
         _transcriptionController.add(msg.content);

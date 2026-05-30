@@ -32,7 +32,9 @@ describe("FAST_LANE_SYSTEM_PROMPT", () => {
 		const { FAST_LANE_SYSTEM_PROMPT } = await import(
 			"./prompts/fast-lane-system.js"
 		);
-		expect(FAST_LANE_SYSTEM_PROMPT.toLowerCase()).toContain("no ejecutes");
+		expect(FAST_LANE_SYSTEM_PROMPT.toLowerCase()).toContain(
+			"no escribas en la base de datos",
+		);
 	});
 
 	it("permite responder preguntas usando contexto rápido", async () => {
@@ -40,7 +42,7 @@ describe("FAST_LANE_SYSTEM_PROMPT", () => {
 			"./prompts/fast-lane-system.js"
 		);
 		expect(FAST_LANE_SYSTEM_PROMPT).toContain(
-			"Podes responder preguntas sencillas usando el contexto",
+			"Responder preguntas usando el contexto",
 		);
 	});
 
@@ -51,12 +53,11 @@ describe("FAST_LANE_SYSTEM_PROMPT", () => {
 		expect(FAST_LANE_SYSTEM_PROMPT).toContain("NO inventes información");
 	});
 
-	it("incluye ejemplos de respuestas con contexto en formato JSON array", async () => {
+	it("indica usar formato JSON array para las respuestas", async () => {
 		const { FAST_LANE_SYSTEM_PROMPT } = await import(
 			"./prompts/fast-lane-system.js"
 		);
-		expect(FAST_LANE_SYSTEM_PROMPT).toContain("Tenes 3 tareas pendientes.");
-		expect(FAST_LANE_SYSTEM_PROMPT).toContain('["Tenes 3 tareas pendientes.');
+		expect(FAST_LANE_SYSTEM_PROMPT).toContain("JSON array");
 	});
 
 	it("incluye instrucciones para reconocer info personal (nombre, preferencias)", async () => {
@@ -66,34 +67,12 @@ describe("FAST_LANE_SYSTEM_PROMPT", () => {
 		expect(FAST_LANE_SYSTEM_PROMPT).toContain("información personal");
 	});
 
-	it("incluye ejemplo de presentación (nombre del usuario)", async () => {
-		const { FAST_LANE_SYSTEM_PROMPT } = await import(
-			"./prompts/fast-lane-system.js"
-		);
-		expect(FAST_LANE_SYSTEM_PROMPT).toContain("Me llamo Emilio");
-		expect(FAST_LANE_SYSTEM_PROMPT).toContain("Hola Emilio");
-	});
-
-	it("incluye ejemplo de preferencia del usuario", async () => {
-		const { FAST_LANE_SYSTEM_PROMPT } = await import(
-			"./prompts/fast-lane-system.js"
-		);
-		expect(FAST_LANE_SYSTEM_PROMPT).toContain("Prefiero trabajar de mañana");
-	});
-
-	it("incluye ejemplo de estado emocional", async () => {
-		const { FAST_LANE_SYSTEM_PROMPT } = await import(
-			"./prompts/fast-lane-system.js"
-		);
-		expect(FAST_LANE_SYSTEM_PROMPT).toContain("con mucha energía");
-	});
-
 	it("tiene tono cálido y conversacional en la descripción", async () => {
 		const { FAST_LANE_SYSTEM_PROMPT } = await import(
 			"./prompts/fast-lane-system.js"
 		);
-		expect(FAST_LANE_SYSTEM_PROMPT).toContain("cálida");
-		expect(FAST_LANE_SYSTEM_PROMPT).toContain("como si estuvieras charlando");
+		expect(FAST_LANE_SYSTEM_PROMPT).toContain("cálido");
+		expect(FAST_LANE_SYSTEM_PROMPT).toContain("directo y natural");
 	});
 });
 

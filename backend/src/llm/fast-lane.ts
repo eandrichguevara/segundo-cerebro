@@ -22,8 +22,7 @@ export async function getFastResponse(
 					{ role: "system", content: systemPrompt },
 					{ role: "user", content: text },
 				],
-				max_completion_tokens: 700,
-				reasoning_effort: "low",
+				max_completion_tokens: 3000,
 			},
 			{ signal },
 		);

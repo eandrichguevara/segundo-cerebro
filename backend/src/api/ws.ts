@@ -353,7 +353,12 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 			const fastLanePrompt = quickContext
 				? `${FAST_LANE_SYSTEM_PROMPT}\n\n${quickContext}`
 				: `${FAST_LANE_SYSTEM_PROMPT}\n\n## Contexto rápido\nNo hay contexto disponible aún. Si el usuario te pide que te presentes, respondé de forma breve como su asistente personal de productividad.`;
-			const fastResponsePromise = getFastResponse(userText, fastLanePrompt);
+			const abortController = new AbortController();
+			const fastResponsePromise = getFastResponse(
+				userText,
+				fastLanePrompt,
+				abortController.signal,
+			);
 
 			const timeoutMs = env.FAST_LANE_TIMEOUT_MS;
 			const timeoutPromise = new Promise<never>((_, reject) =>
@@ -373,6 +378,7 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 					timeoutPromise,
 				]).catch((error) => {
 					if (error instanceof DOMException && error.name === "AbortError") {
+						abortController.abort();
 						return { ok: false, error: LlmError.TIMEOUT } as const;
 					}
 					throw error;

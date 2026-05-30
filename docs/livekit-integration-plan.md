@@ -91,7 +91,7 @@ Usuario: "No tengo un camping en mente..."
  1. Mic continuo (WebRTC) → LiveKit Server → Agent
  2. VAD detecta speech → envía audio a Deepgram Nova-3 streaming
  3. VAD detecta silencio (>500ms) → utterance completo
- 4. Texto transcrito → Fast Lane (gpt-5-nano via fast-lane.ts)
+ 4. Texto transcrito → Fast Lane (gpt-4.1-mini via fast-lane.ts)
  5. Fast Lane responde: "Claro, a ver..." + tool call para buscar campings
  6. Texto → Cartesia Sonic 3.5 TTS streaming
  7. Chunks de audio → LiveKit room → Flutter speaker
@@ -1019,7 +1019,7 @@ Mantener el resto sin cambios.
 |------------|--------|----------------|
 | **STT streaming** | Deepgram Nova-3 | 100h × 60min × $0.0077 = **~$46** |
 | **TTS premium** | Cartesia Sonic 3.5 | ~100h de output = **~$50-80*** |
-| **LLM fast lane** | gpt-5-nano | ~$2-5 (mismo que hoy) |
+| **LLM fast lane** | gpt-4.1-mini | ~$2-5 (mismo que hoy) |
 | **LLM slow lane** | gpt-5-mini | ~$3-5 (mismo que hoy) |
 | **LiveKit Server** | Self-hosted OCI | **$0** (infra existente) |
 | **Total adicional** | | **~$100-140/mes** |
@@ -1129,7 +1129,7 @@ Si Cartesia falla (timeout, error de API, rate limit):
 |-------|-------------|
 | VAD detection | ~100ms |
 | Deepgram streaming STT | ~300ms (first token), ~500ms (full utterance) |
-| Fast lane LLM (gpt-5-nano) | ~800ms |
+| Fast lane LLM (gpt-4.1-mini) | ~800ms |
 | Cartesia TTS first chunk | ~150ms |
 | **Total end-to-end** | **~1.5-2s** (vs ~3-5s actual con Whisper batch) |
 

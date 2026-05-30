@@ -17,7 +17,7 @@ Interfaz: **voice-first**, sin dashboards. La app móvil es solo un cliente de v
 | ORM               | Prisma                                                                                                      |
 | Package manager   | pnpm                                                                                                        |
 | STT               | OpenAI Whisper (`whisper-1`)                                                                                |
-| LLM vía rápida    | OpenAI (default `gpt-5-nano`, configurable via `OPENAI_FAST_MODEL`)                                         |
+| LLM vía rápida    | OpenAI (default `gpt-4.1-mini`, configurable via `OPENAI_FAST_MODEL`)                                         |
 | TTS               | OpenAI `tts-1-hd` (voz `nova`) — función existente pero no integrada en el flujo de producción              |
 | LLM vía lenta     | OpenAI (default `gpt-5-mini`, configurable via `OPENAI_SLOW_MODEL`) — lógica, validación, JSON estructurado |
 | Embeddings        | OpenAI `text-embedding-3-small`                                                                             |
@@ -38,7 +38,7 @@ No cambiar estas decisiones sin actualizar este archivo.
 
 1. Audio del usuario capturado como `audio_chunk` (PCM 16-bit, 16kHz, mono) → servidor vía WebSocket.
 2. Servidor acumula chunks, al recibir `audio_end` envía el buffer completo a OpenAI Whisper API (`whisper-1`) para transcripción.
-3. Texto transcrito → se inyecta **Quick Memory** (contexto resumido en < 700 tokens desde cache en RAM) + OpenAI (modelo configurable via `OPENAI_FAST_MODEL`, default `gpt-5-nano`) para respuesta textual rápida.
+3. Texto transcrito → se inyecta **Quick Memory** (contexto resumido en < 700 tokens desde cache en RAM) + OpenAI (modelo configurable via `OPENAI_FAST_MODEL`, default `gpt-4.1-mini`) para respuesta textual rápida.
 4. Respuesta de texto enviada al cliente vía WebSocket (`text` + `audio_end` para cerrar el turno).
 5. El servidor envía mensajes `processing` (ej: "Buscando...") por WebSocket mientras la vía lenta procesa.
 
@@ -58,7 +58,7 @@ Objetivo: mantener conversación fluida, con respuesta en < 5 s. **Sin escritura
 
 ### Fallback de la vía rápida
 
-Si la vía rápida falla (timeout de `gpt-5-nano` o error de `whisper-1`):
+Si la vía rápida falla (timeout de `gpt-4.1-mini` o error de `whisper-1`):
 
 - El servidor envía `text` con "Un momento, estoy procesando..." y `audio_end` para cerrar el turno.
 - El cliente transiciona a `idle` y puede enviar nuevo audio.
@@ -72,7 +72,7 @@ Cliente (Flutter)
   ├── audio_chunks (WebSocket) ──► Servidor ──► Whisper API (whisper-1)
   │       (audio PCM 16-bit, 16kHz)       │           → texto transcrito
   │                                        │                │
-  │                                        │         Vía rápida: gpt-5-nano
+  │                                        │         Vía rápida: gpt-4.1-mini
   │                                        │         → respuesta textual
   │                                        │                │
   │ ◄── WebSocket text + audio_end ◄──────┘          respuesta texto
@@ -81,7 +81,7 @@ Cliente (Flutter)
   │                                         ┌────────┴────────┐
   │                                         │                  │
   │                                    Vía rápida          Vía lenta
-  │                                    (gpt-5-nano)   Cola PostgreSQL
+  │                                    (gpt-4.1-mini)   Cola PostgreSQL
   │                                         │                  │
   │                                  respuesta texto    Worker consume
   │                                    + audio_end           │
@@ -100,7 +100,7 @@ Cliente (Flutter)
 
 - Request HTTP: 10 s
 - WebSocket inactividad: 5 min (sin mensajes → desconectar)
-- Vía rápida (Whisper + gpt-5-nano): < 5 s P95
+- Vía rápida (Whisper + gpt-4.1-mini): < 5 s P95
 - Vía lenta (cola → worker → BD → notificación): < 30 s P95
 - Vía rápida timeout absoluto: configurable via `FAST_LANE_TIMEOUT_MS` (default: 5000 ms)
 
@@ -1175,7 +1175,7 @@ backend/
   src/
     api/            # Controladores HTTP/WebSocket (Fastify); health.ts, debug.ts
     workers/        # Workers de cola (vía lenta)
-    llm/            # Integraciones: OpenAI (Whisper, gpt-5-nano, gpt-5-mini, embeddings); prompts
+    llm/            # Integraciones: OpenAI (Whisper, gpt-4.1-mini, gpt-5-mini, embeddings); prompts
     db/             # Cliente PostgreSQL, schema Prisma, repositorios
     domain/         # Reglas de negocio: tareas, objetivos, listas, eventos, notificaciones
     config/         # Configuración (variables de entorno, límites, flags, logger)
@@ -1227,7 +1227,7 @@ No mover carpetas de alto nivel sin instrucción explícita.
 
 ### OpenAI LLM vía rápida (Fast Lane)
 
-- Modelo configurable via `OPENAI_FAST_MODEL` (default: `gpt-5-nano`, compatible con GPT-5 y modelos que usen `max_completion_tokens`).
+- Modelo configurable via `OPENAI_FAST_MODEL` (default: `gpt-4.1-mini`, compatible con GPT-5 y modelos que usen `max_completion_tokens`).
 - Genera respuestas textuales rápidas usando el system prompt de vía rápida.
 - **Nunca** escribe en base de datos directamente (solo `conversation_turns` y encolado de vía lenta).
 - Timeout configurable via `FAST_LANE_TIMEOUT_MS` (default: 5000 ms). Si expira, se envía respuesta genérica y la vía lenta procesa el mensaje.
@@ -1380,7 +1380,7 @@ Nunca codificar valores directamente en el código.
 | `EMBEDDING_DIMENSION`      | `1536`       | Dimensión de vectores pgvector                                                        |
 | `FAST_LANE_TIMEOUT_MS`     | `5000`       | Timeout para vía rápida en milisegundos (modelo configurable via `OPENAI_FAST_MODEL`) |
 | `OPENAI_STT_MODEL`         | `whisper-1`  | Modelo de OpenAI para STT                                                             |
-| `OPENAI_FAST_MODEL`        | `gpt-5-nano` | Modelo de OpenAI para vía rápida                                                      |
+| `OPENAI_FAST_MODEL`        | `gpt-4.1-mini` | Modelo de OpenAI para vía rápida                                                      |
 | `OPENAI_SLOW_MODEL`        | `gpt-5-mini` | Modelo de OpenAI para vía lenta                                                       |
 | `OPENAI_TTS_MODEL`         | `tts-1-hd`   | Modelo de OpenAI para TTS                                                             |
 | `OPENAI_TTS_VOICE`         | `nova`       | Voz de OpenAI TTS (`alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`)               |
@@ -1585,7 +1585,7 @@ Cada vez que se realice una modificación al proyecto (agregar funcionalidad, co
 
 - [x] Cliente OpenAI
 - [x] STT (Whisper API) — activo en el flujo de producción
-- [x] LLM vía rápida (gpt-5-nano) — activo en el flujo de producción
+- [x] LLM vía rápida (gpt-4.1-mini) — activo en el flujo de producción
 - [x] LLM vía lenta (gpt-5-mini)
 - [x] TTS (tts-1-hd) — función existente (`llm/tts.ts`) pero no integrada en el flujo de producción
 - [x] Embeddings (text-embedding-3-small)
