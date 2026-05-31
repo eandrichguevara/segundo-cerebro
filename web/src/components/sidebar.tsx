@@ -12,6 +12,10 @@ const NAV_ITEMS = [
 	{ href: "/memories", label: "Memorias", icon: "🧠" },
 	{ href: "/conversations", label: "Conversaciones", icon: "💬" },
 	{ href: "/jobs", label: "Jobs", icon: "⚙️" },
+	{ href: "/projects", label: "Proyectos", icon: "📁" },
+	{ href: "/ideas", label: "Ideas", icon: "💡" },
+	{ href: "/devices", label: "Dispositivos", icon: "📱" },
+	{ href: "/entity-links", label: "Enlaces", icon: "🔗" },
 ];
 
 export function Sidebar() {

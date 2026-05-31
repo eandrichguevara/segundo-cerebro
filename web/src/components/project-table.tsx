@@ -1,36 +1,20 @@
-import type { TaskRow } from "@/lib/api";
-
-const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
+import type { ProjectRow } from "@/lib/api";
 
 const STATUS_STYLES: Record<string, string> = {
-	pending: "border-l-amber-500 bg-amber-500/5",
-	in_progress: "border-l-blue-500 bg-blue-500/5",
+	active: "border-l-blue-500 bg-blue-500/5",
+	paused: "border-l-amber-500 bg-amber-500/5",
 	completed: "border-l-emerald-500 bg-emerald-500/5",
-	postponed: "border-l-orange-500 bg-orange-500/5",
 	cancelled: "border-l-muted-foreground/30 bg-muted/30",
 };
 
 const STATUS_LABELS: Record<string, string> = {
-	pending: "⏳ Pendiente",
-	in_progress: "🔄 En progreso",
-	completed: "✅ Completada",
-	postponed: "⏰ Pospuesta",
-	cancelled: "❌ Cancelada",
+	active: "▶️ Activo",
+	paused: "⏸️ Pausado",
+	completed: "✅ Completado",
+	cancelled: "❌ Cancelado",
 };
 
-const PRIORITY_LABELS: Record<string, string> = {
-	high: "🔴 Alta",
-	medium: "🟡 Media",
-	low: "🟢 Baja",
-};
-
-export function TaskTable({ tasks }: { tasks: TaskRow[] }) {
-	const sorted = [...tasks].sort((a, b) => {
-		const pa = PRIORITY_ORDER[a.priority] ?? 1;
-		const pb = PRIORITY_ORDER[b.priority] ?? 1;
-		return pa - pb;
-	});
-
+export function ProjectTable({ projects }: { projects: ProjectRow[] }) {
 	return (
 		<div className="overflow-hidden rounded-xl border border-border">
 			<div className="overflow-x-auto">
@@ -39,45 +23,41 @@ export function TaskTable({ tasks }: { tasks: TaskRow[] }) {
 						<tr className="border-b border-border bg-secondary/50">
 							<th className="px-4 py-3 text-left font-medium text-muted-foreground">Título</th>
 							<th className="px-4 py-3 text-left font-medium text-muted-foreground">Estado</th>
-							<th className="px-4 py-3 text-left font-medium text-muted-foreground">Prioridad</th>
+							<th className="px-4 py-3 text-left font-medium text-muted-foreground">Categoría</th>
 							<th className="px-4 py-3 text-left font-medium text-muted-foreground">Vencimiento</th>
-							<th className="px-4 py-3 text-left font-medium text-muted-foreground">Objetivo</th>
 							<th className="px-4 py-3 text-left font-medium text-muted-foreground">Enlaces</th>
-							<th className="px-4 py-3 text-left font-medium text-muted-foreground">Creada</th>
+							<th className="px-4 py-3 text-left font-medium text-muted-foreground">Creado</th>
 						</tr>
 					</thead>
 					<tbody>
-						{sorted.map((task) => {
-							const borderColor = STATUS_STYLES[task.status] ?? STATUS_STYLES.pending;
+						{projects.map((project) => {
+							const borderColor = STATUS_STYLES[project.status] ?? STATUS_STYLES.active;
 							return (
 								<tr
-									key={task.id}
+									key={project.id}
 									className={`border-b border-border border-l-2 ${borderColor} last:border-b-0 hover:bg-secondary/30`}
 								>
 									<td className="max-w-xs px-4 py-3">
-										<div className="font-medium">{task.title}</div>
-										{task.description && (
+										<div className="font-medium">{project.title}</div>
+										{project.description && (
 											<div className="mt-0.5 truncate text-xs text-muted-foreground">
-												{task.description}
+												{project.description}
 											</div>
 										)}
 									</td>
 									<td className="px-4 py-3">
-										<span className="text-xs">{STATUS_LABELS[task.status] ?? task.status}</span>
-									</td>
-									<td className="px-4 py-3">
-										<span className="text-xs">{PRIORITY_LABELS[task.priority] ?? task.priority}</span>
-									</td>
-									<td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
-										{task.dueDate ? new Date(task.dueDate).toLocaleDateString("es-AR", { day: "numeric", month: "short" }) : "—"}
+										<span className="text-xs">{STATUS_LABELS[project.status] ?? project.status}</span>
 									</td>
 									<td className="px-4 py-3 text-xs text-muted-foreground max-w-[120px] truncate">
-										{task.objectiveTitle ?? "—"}
+										{project.category ?? "—"}
+									</td>
+									<td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+										{project.deadline ? new Date(project.deadline).toLocaleDateString("es-AR", { day: "numeric", month: "short" }) : "—"}
 									</td>
 									<td className="px-4 py-3 text-xs">
-										{task.links && task.links.length > 0 ? (
+										{project.links && project.links.length > 0 ? (
 											<div className="flex flex-col gap-1">
-												{task.links.map((link) => (
+												{project.links.map((link) => (
 													<div key={link.id} className="flex items-center gap-1.5 rounded-md bg-secondary/60 px-2 py-1 w-max max-w-[200px]">
 														<span className="font-semibold uppercase text-[9px] text-primary">{link.linkedType}</span>
 														<span className="truncate text-muted-foreground" title={link.linkedTitle}>{link.linkedTitle}</span>
@@ -87,7 +67,7 @@ export function TaskTable({ tasks }: { tasks: TaskRow[] }) {
 										) : "—"}
 									</td>
 									<td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
-										{new Date(task.createdAt).toLocaleDateString("es-AR", { day: "numeric", month: "short" })}
+										{new Date(project.createdAt).toLocaleDateString("es-AR", { day: "numeric", month: "short" })}
 									</td>
 								</tr>
 							);

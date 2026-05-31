@@ -17,7 +17,11 @@ export type DbEntity =
 	| "lists"
 	| "memories"
 	| "conversations"
-	| "jobs";
+	| "jobs"
+	| "projects"
+	| "ideas"
+	| "devices"
+	| "entity-links";
 
 export interface DbListResponse<T> {
 	data: T[];
@@ -45,6 +49,14 @@ export async function fetchDbData<T>(
 	return res.json();
 }
 
+export interface EntityLinkInfo {
+	id: string;
+	linkedType: string;
+	linkedId: string;
+	linkedTitle: string;
+	relation: string;
+}
+
 export interface TaskRow {
 	id: string;
 	title: string;
@@ -57,6 +69,7 @@ export interface TaskRow {
 	createdAt: string;
 	updatedAt: string;
 	cancelledAt: string | null;
+	links?: EntityLinkInfo[];
 }
 
 export interface ObjectiveRow {
@@ -68,6 +81,7 @@ export interface ObjectiveRow {
 	taskCount: number;
 	completedTasks: number;
 	createdAt: string;
+	links?: EntityLinkInfo[];
 }
 
 export interface EventRow {
@@ -82,6 +96,7 @@ export interface EventRow {
 	recurrenceRule: Record<string, unknown> | null;
 	isException: boolean;
 	createdAt: string;
+	links?: EntityLinkInfo[];
 }
 
 export interface ListRow {
@@ -92,6 +107,7 @@ export interface ListRow {
 	status: string;
 	items: Array<{ content: string; quantity?: string; checked: boolean }>;
 	createdAt: string;
+	links?: EntityLinkInfo[];
 }
 
 export interface MemoryRow {
@@ -122,7 +138,7 @@ export interface JobRow {
 
 export async function fetchAllEntityCounts(): Promise<Record<string, number>> {
 	const entities: DbEntity[] = [
-		"tasks", "objectives", "events", "lists", "memories", "conversations", "jobs",
+		"tasks", "objectives", "events", "lists", "memories", "conversations", "jobs", "projects", "ideas", "devices", "entity-links",
 	];
 	const counts: Record<string, number> = {};
 	for (const entity of entities) {
@@ -134,4 +150,47 @@ export async function fetchAllEntityCounts(): Promise<Record<string, number>> {
 		}
 	}
 	return counts;
+}
+
+export interface ProjectRow {
+	id: string;
+	title: string;
+	description: string | null;
+	status: string;
+	category: string | null;
+	deadline: string | null;
+	createdAt: string;
+	updatedAt: string;
+	cancelledAt: string | null;
+	links?: EntityLinkInfo[];
+}
+
+export interface IdeaRow {
+	id: string;
+	title: string;
+	description: string | null;
+	status: string;
+	tags: string[];
+	createdAt: string;
+	updatedAt: string;
+	links?: EntityLinkInfo[];
+}
+
+export interface DeviceRow {
+	id: string;
+	platform: string;
+	fcmToken: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface EntityLinkRow {
+	id: string;
+	sourceType: string;
+	sourceId: string;
+	targetType: string;
+	targetId: string;
+	relation: string;
+	note: string | null;
+	createdAt: string;
 }

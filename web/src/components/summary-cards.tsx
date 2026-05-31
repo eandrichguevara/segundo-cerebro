@@ -9,6 +9,10 @@ const ENTITY_CONFIG: Record<string, { icon: string; label: string; href: string;
 	memories: { icon: "🧠", label: "Memorias", href: "/memories", color: "border-l-rose-500" },
 	conversations: { icon: "💬", label: "Conversaciones", href: "/conversations", color: "border-l-cyan-500" },
 	jobs: { icon: "⚙️", label: "Jobs", href: "/jobs", color: "border-l-slate-500" },
+	projects: { icon: "📁", label: "Proyectos", href: "/projects", color: "border-l-indigo-500" },
+	ideas: { icon: "💡", label: "Ideas", href: "/ideas", color: "border-l-yellow-500" },
+	devices: { icon: "📱", label: "Dispositivos", href: "/devices", color: "border-l-teal-500" },
+	"entity-links": { icon: "🔗", label: "Enlaces", href: "/entity-links", color: "border-l-fuchsia-500" },
 };
 
 export function SummaryCards({ counts }: { counts: Record<string, number> }) {

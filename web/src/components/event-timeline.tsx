@@ -68,6 +68,17 @@ export function EventTimeline({ events }: { events: EventRow[] }) {
 											<span className="flex items-center gap-1">🔄 Recurrente</span>
 										)}
 									</div>
+
+									{event.links && event.links.length > 0 && (
+										<div className="mt-3 flex flex-wrap gap-1 border-t border-border pt-3">
+											{event.links.map((link) => (
+												<div key={link.id} className="flex items-center gap-1.5 rounded-md bg-secondary/60 px-2 py-1">
+													<span className="font-semibold uppercase text-[9px] text-primary">{link.linkedType}</span>
+													<span className="truncate text-xs text-muted-foreground" title={link.linkedTitle}>{link.linkedTitle}</span>
+												</div>
+											))}
+										</div>
+									)}
 								</div>
 							);
 						})}
