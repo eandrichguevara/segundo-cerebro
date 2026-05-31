@@ -57,6 +57,14 @@ vi.mock("../db/repositories/task-repository.js", () => ({
 	getActiveTasks: vi.fn().mockResolvedValue([]),
 }));
 
+vi.mock("../db/repositories/project-repository.js", () => ({
+	getActiveProjects: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock("../db/repositories/idea-repository.js", () => ({
+	getActiveIdeas: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock("../llm/prompts/slow-lane-system.js", () => ({
 	SLOW_LANE_SYSTEM_PROMPT: "test prompt",
 }));

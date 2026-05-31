@@ -24,7 +24,15 @@ let current: QuickMemoryData | null = null;
 const MAX_CHARS = 2800;
 
 export function update(data: QuickMemoryData): void {
-	current = { ...data, updatedAt: new Date() };
+	current = {
+		...data,
+		topData: {
+			...data.topData,
+			projects: data.topData.projects ?? [],
+			ideas: data.topData.ideas ?? [],
+		},
+		updatedAt: new Date(),
+	};
 	logger.info({ updatedAt: current.updatedAt }, "Quick memory updated");
 }
 
@@ -48,8 +56,8 @@ export function formatForPrompt(): string {
 	const objectives = current.topData.objectives;
 	const lists = current.topData.lists;
 	const events = current.topData.events;
-	const projects = current.topData.projects;
-	const ideas = current.topData.ideas;
+	const projects = current.topData.projects ?? [];
+	const ideas = current.topData.ideas ?? [];
 	if (tasks.length > 0) topItems.push(`Tareas: ${tasks.join(", ")}`);
 	if (objectives.length > 0)
 		topItems.push(`Objetivos: ${objectives.join(", ")}`);

@@ -15,7 +15,7 @@ async function seed(): Promise<void> {
 	console.log("Seeding database...");
 
 	// Clean existing data in FK-safe order
-	await prisma.taskEventLink.deleteMany();
+	await prisma.entityLink.deleteMany();
 	await prisma.conversationTurn.deleteMany();
 	await prisma.job.deleteMany();
 	await prisma.device.deleteMany();
@@ -24,6 +24,8 @@ async function seed(): Promise<void> {
 	await prisma.task.deleteMany();
 	await prisma.list.deleteMany();
 	await prisma.objective.deleteMany();
+	await prisma.project.deleteMany();
+	await prisma.idea.deleteMany();
 
 	// ────────────────────────
 	// Objectives (5 — todos los status)
@@ -164,7 +166,7 @@ async function seed(): Promise<void> {
 	// ────────────────────────
 	// Lists (6 — todos los status + tipos + edge cases)
 	// ────────────────────────
-	await prisma.list.create({
+	const listSupermercado = await prisma.list.create({
 		data: {
 			id: uuid(),
 			title: "Lista del supermercado",
@@ -180,7 +182,7 @@ async function seed(): Promise<void> {
 		},
 	});
 
-	await prisma.list.create({
+	const listHogar = await prisma.list.create({
 		data: {
 			id: uuid(),
 			title: "Tareas del hogar",
@@ -195,7 +197,7 @@ async function seed(): Promise<void> {
 		},
 	});
 
-	await prisma.list.create({
+	const listCompras = await prisma.list.create({
 		data: {
 			id: uuid(),
 			title: "Compras semanales",
@@ -209,7 +211,7 @@ async function seed(): Promise<void> {
 		},
 	});
 
-	await prisma.list.create({
+	const listLecturas = await prisma.list.create({
 		data: {
 			id: uuid(),
 			title: "Lista de lecturas",
@@ -220,7 +222,7 @@ async function seed(): Promise<void> {
 		},
 	});
 
-	await prisma.list.create({
+	const listCena = await prisma.list.create({
 		data: {
 			id: uuid(),
 			title: "Ingredientes para la cena",
@@ -234,7 +236,7 @@ async function seed(): Promise<void> {
 		},
 	});
 
-	await prisma.list.create({
+	const listVacia = await prisma.list.create({
 		data: {
 			id: uuid(),
 			title: "Lista vacía",
@@ -333,13 +335,134 @@ async function seed(): Promise<void> {
 	});
 
 	// ────────────────────────
-	// TaskEventLinks
+	// Projects (4 — todos los status)
 	// ────────────────────────
-	await prisma.taskEventLink.createMany({
+	const projWeb = await prisma.project.create({
+		data: {
+			id: uuid(),
+			title: "Rediseño del sitio web",
+			description: "Migrar el sitio corporativo a Next.js y React",
+			status: "active",
+			category: "trabajo",
+			deadline: d("2026-08-31T23:59:59Z"),
+		},
+	});
+
+	const projApp = await prisma.project.create({
+		data: {
+			id: uuid(),
+			title: "Desarrollo de App Móvil",
+			description: "Crear MVP de la app móvil en Flutter",
+			status: "paused",
+			category: "trabajo",
+		},
+	});
+
+	const projCasa = await prisma.project.create({
+		data: {
+			id: uuid(),
+			title: "Pintar la casa",
+			description: "Comprar pintura y pintar sala y cocina",
+			status: "completed",
+			category: "personal",
+			deadline: d("2026-05-15T23:59:59Z"),
+		},
+	});
+
+	const projFreelance = await prisma.project.create({
+		data: {
+			id: uuid(),
+			title: "Desarrollar landing page",
+			description: "Landing page para cliente de bienes raíces",
+			status: "cancelled",
+			category: "personal",
+			cancelledAt: d("2026-05-01T10:00:00Z"),
+		},
+	});
+
+	// ────────────────────────
+	// Ideas (5 — todos los status)
+	// ────────────────────────
+	const ideaPlataforma = await prisma.idea.create({
+		data: {
+			id: uuid(),
+			title: "Plataforma de cursos online",
+			description: "Crear una plataforma con suscripción mensual para cursos de programación",
+			status: "new_idea",
+			tags: ["educación", "negocios"],
+		},
+	});
+
+	const ideaNewsletter = await prisma.idea.create({
+		data: {
+			id: uuid(),
+			title: "Escribir newsletter semanal",
+			description: "Compartir aprendizajes sobre desarrollo de software y productividad",
+			status: "evaluating",
+			tags: ["contenido", "escritura"],
+		},
+	});
+
+	const ideaHuerta = await prisma.idea.create({
+		data: {
+			id: uuid(),
+			title: "Hacer huerta orgánica",
+			description: "Armar cajones para plantar tomates, lechuga y albahaca en el balcón",
+			status: "approved",
+			tags: ["hogar", "hobbies"],
+		},
+	});
+
+	const ideaViaje = await prisma.idea.create({
+		data: {
+			id: uuid(),
+			title: "Viaje por el sur de Argentina",
+			description: "Recorrer Bariloche, San Martín de los Andes y Villa La Angostura",
+			status: "discarded",
+			tags: ["viajes"],
+		},
+	});
+
+	const ideaMercadoPago = await prisma.idea.create({
+		data: {
+			id: uuid(),
+			title: "Integrar pagos con MercadoPago",
+			description: "Permitir pagos con tarjeta y saldo en cuenta",
+			status: "converted",
+			tags: ["fintech", "integración"],
+		},
+	});
+
+	// ────────────────────────
+	// EntityLinks (enlaces entre todas las tablas)
+	// ────────────────────────
+	await prisma.entityLink.createMany({
 		data: [
-			{ taskId: t1.id, eventId: evReunion.id },
-			{ taskId: t2.id, eventId: evReunion.id },
-			{ taskId: t17.id, eventId: evCumple.id },
+			// task <-> event
+			{ id: uuid(), sourceType: "task", sourceId: t1.id, targetType: "event", targetId: evReunion.id, relation: "related", note: "Comprar pasajes para asistir a la reunión" },
+			{ id: uuid(), sourceType: "task", sourceId: t2.id, targetType: "event", targetId: evReunion.id, relation: "related", note: "Reservar hotel cerca del lugar del evento" },
+			{ id: uuid(), sourceType: "task", sourceId: t17.id, targetType: "event", targetId: evCumple.id, relation: "related", note: "Planificar la fiesta para el cumpleaños" },
+			
+			// project <-> objective
+			{ id: uuid(), sourceType: "project", sourceId: projWeb.id, targetType: "objective", targetId: objTypescript.id, relation: "related", note: "El rediseño de la web permitirá aplicar TS avanzado" },
+			
+			// idea <-> project
+			{ id: uuid(), sourceType: "idea", sourceId: ideaMercadoPago.id, targetType: "project", targetId: projWeb.id, relation: "inspired_by", note: "La idea de integrar MercadoPago inspiró la sección de cobros en la web" },
+			
+			// task <-> project
+			{ id: uuid(), sourceType: "task", sourceId: t20.id, targetType: "project", targetId: projWeb.id, relation: "part_of", note: "Preparar presentación del nuevo diseño de la web" },
+			
+			// task <-> list
+			{ id: uuid(), sourceType: "task", sourceId: t13.id, targetType: "list", targetId: listSupermercado.id, relation: "part_of", note: "La leche a comprar es parte de la lista semanal" },
+			
+			// event <-> list
+			{ id: uuid(), sourceType: "event", sourceId: evCena.id, targetType: "list", targetId: listCena.id, relation: "related", note: "Ingredientes necesarios para la cena con amigos" },
+			
+			// idea <-> task
+			{ id: uuid(), sourceType: "idea", sourceId: ideaNewsletter.id, targetType: "task", targetId: t4.id, relation: "related", note: "Escribir newsletter sobre generic types después de estudiarlos" },
+			
+			// objective <-> idea
+			{ id: uuid(), sourceType: "objective", sourceId: objVacaciones.id, targetType: "idea", targetId: ideaViaje.id, relation: "inspired_by", note: "El objetivo de ahorrar para las vacaciones inspiró el viaje por el sur" },
 		],
 	});
 
@@ -446,8 +569,10 @@ async function seed(): Promise<void> {
 	console.log(`  Objectives: 5 (active×2, paused, completed, cancelled)`);
 	console.log(`  Tasks: 22 (5 status × 3 priority + 7 edge cases)`);
 	console.log(`  Lists: 6 (active×4, completed, cancelled)`);
-  console.log(`  Events: 7 (incl. 1 recurrence exception, active×5, completed, cancelled)`);
-	console.log(`  TaskEventLinks: 3`);
+	console.log(`  Events: 7 (incl. 1 recurrence exception, active×5, completed, cancelled)`);
+	console.log(`  Projects: 4 (active, paused, completed, cancelled)`);
+	console.log(`  Ideas: 5 (new_idea, evaluating, approved, discarded, converted)`);
+	console.log(`  EntityLinks: 10`);
 	console.log(`  Memories: 6 (preference×2, decision, goal, insight, general)`);
 	console.log(`  ConversationTurns: 7 (1 session)`);
 	console.log(`  Jobs: 6 (pending×2, processing, completed×2, failed)`);
