@@ -77,6 +77,36 @@ enum EventStatus {
   @@map("event_status")
 }
 
+enum ProjectStatus {
+  active
+  paused
+  completed
+  cancelled
+
+  @@map("project_status")
+}
+
+enum IdeaStatus {
+  new_idea
+  evaluating
+  approved
+  discarded
+  converted
+
+  @@map("idea_status")
+}
+
+enum EntityType {
+  task
+  objective
+  project
+  idea
+  list
+  event
+
+  @@map("entity_type")
+}
+
 model Task {
   id          String         @id @default(uuid()) @db.Uuid
   title       String
@@ -91,7 +121,6 @@ model Task {
   cancelledAt DateTime?      @map("cancelled_at") @db.Timestamptz()
 
   objective Objective? @relation(fields: [objectiveId], references: [id])
-  events    TaskEventLink[]
 
   @@map("tasks")
 }
@@ -187,25 +216,52 @@ model Event {
 
   parent      Event?         @relation("EventExceptions", fields: [parentId], references: [id])
   exceptions  Event[]        @relation("EventExceptions")
-  tasks       TaskEventLink[]
 
   @@index([startTime])
   @@index([parentId])
   @@map("events")
 }
 
-model TaskEventLink {
-  id      String @id @default(uuid()) @db.Uuid
-  taskId  String @map("task_id") @db.Uuid
-  eventId String @map("event_id") @db.Uuid
+model Project {
+  id          String        @id @default(uuid()) @db.Uuid
+  title       String
+  description String?
+  status      ProjectStatus @default(active)
+  category    String?
+  deadline    DateTime?     @db.Timestamptz()
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz()
+  cancelledAt DateTime?     @map("cancelled_at") @db.Timestamptz()
 
-  task  Task  @relation(fields: [taskId], references: [id])
-  event Event @relation(fields: [eventId], references: [id])
+  @@map("projects")
+}
 
-  @@unique([taskId, eventId])
-  @@index([taskId])
-  @@index([eventId])
-  @@map("task_event_links")
+model Idea {
+  id          String     @id @default(uuid()) @db.Uuid
+  title       String
+  description String?
+  status      IdeaStatus @default(new_idea)
+  tags        String[]   @default([])
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@map("ideas")
+}
+
+model EntityLink {
+  id         String     @id @default(uuid()) @db.Uuid
+  sourceType EntityType @map("source_type")
+  sourceId   String     @map("source_id") @db.Uuid
+  targetType EntityType @map("target_type")
+  targetId   String     @map("target_id") @db.Uuid
+  relation   String     @default("related")
+  note       String?
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@unique([sourceType, sourceId, targetType, targetId])
+  @@index([sourceType, sourceId])
+  @@index([targetType, targetId])
+  @@map("entity_links")
 }
 
 model List {

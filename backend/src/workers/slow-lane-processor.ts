@@ -7,6 +7,7 @@ import {
 	getRecentTurns,
 } from "../db/repositories/conversation-repository.js";
 import * as eventRepository from "../db/repositories/event-repository.js";
+import * as ideaRepository from "../db/repositories/idea-repository.js";
 import {
 	claimJob,
 	completeJob,
@@ -19,6 +20,7 @@ import {
 	getRelevantMemories,
 } from "../db/repositories/memory-repository.js";
 import { getActiveObjectives } from "../db/repositories/objective-repository.js";
+import * as projectRepository from "../db/repositories/project-repository.js";
 import { getActiveTasks } from "../db/repositories/task-repository.js";
 import { generateEmbedding } from "../llm/embeddings.js";
 import { SLOW_LANE_SYSTEM_PROMPT } from "../llm/prompts/slow-lane-system.js";
@@ -149,6 +151,44 @@ async function formatActiveLists(): Promise<string> {
 	}
 }
 
+async function formatActiveProjects(): Promise<string> {
+	try {
+		const projects = await projectRepository.getActiveProjects();
+		if (projects.length === 0) return "";
+		return projects
+			.map((p) => {
+				const parts = [p.status];
+				if (p.category) parts.push(`categoría: ${p.category}`);
+				if (p.deadline)
+					parts.push(`deadline: ${p.deadline.toLocaleDateString("es-AR")}`);
+				parts.push(`id: ${p.id}`);
+				return `- 📁 ${p.title} (${parts.join(", ")})`;
+			})
+			.join("\n");
+	} catch (error) {
+		logger.error({ error }, "Error fetching projects");
+		return "";
+	}
+}
+
+async function formatActiveIdeas(): Promise<string> {
+	try {
+		const ideas = await ideaRepository.getActiveIdeas();
+		if (ideas.length === 0) return "";
+		return ideas
+			.map((i) => {
+				const parts = [i.status];
+				if (i.tags.length > 0) parts.push(`tags: ${i.tags.join(", ")}`);
+				parts.push(`id: ${i.id}`);
+				return `- 💡 ${i.title} (${parts.join(", ")})`;
+			})
+			.join("\n");
+	} catch (error) {
+		logger.error({ error }, "Error fetching ideas");
+		return "";
+	}
+}
+
 async function buildDisplayForTypes(
 	types: string[],
 ): Promise<Array<Record<string, unknown>>> {
@@ -206,6 +246,27 @@ async function buildDisplayForTypes(
 					...(e.category ? { category: e.category } : {}),
 				});
 			}
+		} else if (type === "project") {
+			const projects = await projectRepository.getActiveProjects();
+			for (const p of projects) {
+				display.push({
+					type: "project",
+					title: p.title,
+					status: p.status,
+					...(p.category ? { category: p.category } : {}),
+					...(p.deadline ? { deadline: p.deadline.toISOString() } : {}),
+				});
+			}
+		} else if (type === "idea") {
+			const ideas = await ideaRepository.getActiveIdeas();
+			for (const i of ideas) {
+				display.push({
+					type: "idea",
+					title: i.title,
+					status: i.status,
+					...(i.tags.length > 0 ? { tags: i.tags } : {}),
+				});
+			}
 		}
 	}
 
@@ -235,13 +296,15 @@ async function processJob(): Promise<void> {
 			| string
 			| undefined;
 
-		const [
+	const [
 			conversationTurns,
 			recentMemories,
 			activeObjectives,
 			activeTasks,
 			activeLists,
 			upcomingEvents,
+			activeProjects,
+			activeIdeas,
 		] = await Promise.all([
 			formatConversationTurns(sessionId),
 			formatRecentMemories(transcribedText),
@@ -249,6 +312,8 @@ async function processJob(): Promise<void> {
 			formatActiveTasks(),
 			formatActiveLists(),
 			formatUpcomingEvents(),
+			formatActiveProjects(),
+			formatActiveIdeas(),
 		]);
 
 		const actionsResult = await extractActions(transcribedText, {
@@ -259,6 +324,8 @@ async function processJob(): Promise<void> {
 			activeTasks,
 			activeLists,
 			upcomingEvents,
+			activeProjects,
+			activeIdeas,
 			fastLaneResponse,
 		});
 
@@ -511,6 +578,8 @@ async function processJob(): Promise<void> {
 		if (activeObjectives.trim()) contextTypes.add("objective");
 		if (activeLists.trim()) contextTypes.add("list");
 		if (upcomingEvents.trim()) contextTypes.add("event");
+		if (activeProjects.trim()) contextTypes.add("project");
+		if (activeIdeas.trim()) contextTypes.add("idea");
 
 		const respondedTypes = new Set<string>();
 		for (const rr of respondResults) {

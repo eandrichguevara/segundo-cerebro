@@ -19,6 +19,8 @@ export interface SlowLaneContext {
 	activeTasks?: string;
 	activeLists?: string;
 	upcomingEvents?: string;
+	activeProjects?: string;
+	activeIdeas?: string;
 	fastLaneResponse?: string;
 }
 
@@ -75,6 +77,18 @@ export async function extractActions(
 			messages.push({
 				role: "system",
 				content: `## Eventos próximos\n${context.upcomingEvents}`,
+			});
+		}
+		if (context.activeProjects) {
+			messages.push({
+				role: "system",
+				content: `## Proyectos activos\n${context.activeProjects}`,
+			});
+		}
+		if (context.activeIdeas) {
+			messages.push({
+				role: "system",
+				content: `## Ideas activas\n${context.activeIdeas}`,
 			});
 		}
 		if (context.fastLaneResponse) {

@@ -1,15 +1,23 @@
 import { logger } from "../config/logger.js";
+import * as entityLinkRepository from "../db/repositories/entity-link-repository.js";
 import * as eventRepository from "../db/repositories/event-repository.js";
+import * as ideaRepository from "../db/repositories/idea-repository.js";
 import * as listRepository from "../db/repositories/list-repository.js";
 import * as memoryRepository from "../db/repositories/memory-repository.js";
 import * as objectiveRepository from "../db/repositories/objective-repository.js";
+import * as projectRepository from "../db/repositories/project-repository.js";
 import * as taskRepository from "../db/repositories/task-repository.js";
+import { validateLink } from "../domain/entity-link.js";
 import {
 	EventStatus,
 	transitionStatus as transitionEventStatus,
 	validateCreateEvent,
 	validateRecurrenceRule,
 } from "../domain/event.js";
+import {
+	IdeaStatus,
+	transitionStatus as transitionIdeaStatus,
+} from "../domain/idea.js";
 import type { ListError, ListItem } from "../domain/list.js";
 import {
 	ListStatus,
@@ -22,6 +30,10 @@ import {
 	ObjectiveStatus,
 	transitionStatus as transitionObjectiveStatus,
 } from "../domain/objective.js";
+import {
+	ProjectStatus,
+	transitionStatus as transitionProjectStatus,
+} from "../domain/project.js";
 import { update as updateQuickMemory } from "../domain/quick-memory.js";
 import {
 	TaskStatus,
@@ -1427,78 +1439,446 @@ export async function handleUpdateRecurrenceRule(
 	}
 }
 
-export async function handleLinkTaskEvent(
+// ── Project Handlers ──
+
+export async function handleCreateProject(
 	payload: Record<string, unknown>,
 	correlationId: string,
 ): Promise<ActionResult> {
-	const taskIds = payload.task_ids as string[] | string | undefined;
-	const eventIds = payload.event_ids as string[] | string | undefined;
-
-	if (!taskIds) {
-		return actionResult(false, "link_task_event", correlationId, {
+	const title = payload.title as string | undefined;
+	if (!title || title.trim().length === 0) {
+		return actionResult(false, "create_project", correlationId, {
 			error: "MISSING_REQUIRED_FIELD",
-			message: "task_ids es requerido",
-		});
-	}
-	if (!eventIds) {
-		return actionResult(false, "link_task_event", correlationId, {
-			error: "MISSING_REQUIRED_FIELD",
-			message: "event_ids es requerido",
+			message: "El título es requerido",
 		});
 	}
 
-	const taskIdList = Array.isArray(taskIds) ? taskIds : [taskIds];
-	const eventIdList = Array.isArray(eventIds) ? eventIds : [eventIds];
+	try {
+		const project = await projectRepository.createProject({
+			title: title.trim(),
+			description: payload.description as string | undefined,
+			category: payload.category as string | undefined,
+			deadline: payload.deadline as string | undefined,
+		});
 
-	let linked = 0;
-	const errors: string[] = [];
-
-	for (const taskId of taskIdList) {
-		for (const eventId of eventIdList) {
-			try {
-				await eventRepository.linkTaskToEvent(taskId, eventId);
-				linked++;
-			} catch (error) {
-				errors.push(`task ${taskId} + event ${eventId}: ya vinculados`);
-			}
-		}
+		return actionResult(true, "create_project", correlationId, {
+			id: project.id,
+			title: project.title,
+			status: project.status,
+		});
+	} catch (error) {
+		logger.error({ error, correlationId }, "Error creating project");
+		return actionResult(false, "create_project", correlationId, {
+			error: "INTERNAL_ERROR",
+			message: "Error al crear el proyecto",
+		});
 	}
-
-	return actionResult(true, "link_task_event", correlationId, {
-		linked,
-		...(errors.length > 0 ? { warnings: errors } : {}),
-	});
 }
 
-export async function handleUnlinkTaskEvent(
+export async function handleUpdateProject(
 	payload: Record<string, unknown>,
 	correlationId: string,
 ): Promise<ActionResult> {
-	const taskIds = payload.task_ids as string[] | string | undefined;
-	const eventIds = payload.event_ids as string[] | string | undefined;
-
-	if (!taskIds || !eventIds) {
-		return actionResult(false, "unlink_task_event", correlationId, {
+	const projectId = payload.project_id as string | undefined;
+	if (!projectId) {
+		return actionResult(false, "update_project", correlationId, {
 			error: "MISSING_REQUIRED_FIELD",
-			message: "task_ids y event_ids son requeridos",
+			message: "project_id es requerido",
 		});
 	}
 
-	const taskIdList = Array.isArray(taskIds) ? taskIds : [taskIds];
-	const eventIdList = Array.isArray(eventIds) ? eventIds : [eventIds];
-
-	let unlinked = 0;
-
-	for (const taskId of taskIdList) {
-		for (const eventId of eventIdList) {
-			await eventRepository.unlinkTaskFromEvent(taskId, eventId);
-			unlinked++;
+	try {
+		const project = await projectRepository.getProjectById(projectId);
+		if (!project) {
+			return actionResult(false, "update_project", correlationId, {
+				error: "PROJECT_NOT_FOUND",
+				message: "No existe un proyecto con el ID proporcionado",
+			});
 		}
+
+		const updated = await projectRepository.updateProject(projectId, {
+			title: payload.title as string | undefined,
+			description: payload.description as string | undefined,
+			category: payload.category as string | undefined,
+			deadline: payload.deadline as string | undefined,
+		});
+
+		return actionResult(true, "update_project", correlationId, {
+			id: updated.id,
+			title: updated.title,
+			status: updated.status,
+		});
+	} catch (error) {
+		logger.error({ error, correlationId }, "Error updating project");
+		return actionResult(false, "update_project", correlationId, {
+			error: "INTERNAL_ERROR",
+			message: "Error al actualizar el proyecto",
+		});
+	}
+}
+
+async function handleProjectStatusTransition(
+	action: string,
+	payload: Record<string, unknown>,
+	correlationId: string,
+	targetStatus: ProjectStatus,
+): Promise<ActionResult> {
+	const projectId = payload.project_id as string | undefined;
+	if (!projectId) {
+		return actionResult(false, action, correlationId, {
+			error: "MISSING_REQUIRED_FIELD",
+			message: "project_id es requerido",
+		});
 	}
 
-	return actionResult(true, "unlink_task_event", correlationId, {
-		unlinked,
+	try {
+		const project = await projectRepository.getProjectById(projectId);
+		if (!project) {
+			return actionResult(false, action, correlationId, {
+				error: "PROJECT_NOT_FOUND",
+				message: "No existe un proyecto con el ID proporcionado",
+			});
+		}
+
+		const transition = transitionProjectStatus(
+			project.status as ProjectStatus,
+			targetStatus,
+		);
+		if (!transition.ok) {
+			return actionResult(false, action, correlationId, {
+				error: "INVALID_STATE_TRANSITION",
+				message: `No se puede pasar de ${project.status} a ${targetStatus}`,
+			});
+		}
+
+		const cancelledAt =
+			targetStatus === ProjectStatus.CANCELLED ? new Date() : undefined;
+
+		const updated = await projectRepository.transitionProjectStatus(
+			projectId,
+			targetStatus,
+			cancelledAt,
+		);
+
+		return actionResult(true, action, correlationId, {
+			id: updated.id,
+			status: updated.status,
+		});
+	} catch (error) {
+		logger.error({ error, correlationId }, `Error transitioning project: ${action}`);
+		return actionResult(false, action, correlationId, {
+			error: "INTERNAL_ERROR",
+			message: "Error al cambiar el estado del proyecto",
+		});
+	}
+}
+
+export async function handleCompleteProject(
+	payload: Record<string, unknown>,
+	correlationId: string,
+): Promise<ActionResult> {
+	return handleProjectStatusTransition("complete_project", payload, correlationId, ProjectStatus.COMPLETED);
+}
+
+export async function handleCancelProject(
+	payload: Record<string, unknown>,
+	correlationId: string,
+): Promise<ActionResult> {
+	return handleProjectStatusTransition("cancel_project", payload, correlationId, ProjectStatus.CANCELLED);
+}
+
+export async function handlePauseProject(
+	payload: Record<string, unknown>,
+	correlationId: string,
+): Promise<ActionResult> {
+	return handleProjectStatusTransition("pause_project", payload, correlationId, ProjectStatus.PAUSED);
+}
+
+export async function handleResumeProject(
+	payload: Record<string, unknown>,
+	correlationId: string,
+): Promise<ActionResult> {
+	return handleProjectStatusTransition("resume_project", payload, correlationId, ProjectStatus.ACTIVE);
+}
+
+// ── Idea Handlers ──
+
+export async function handleCreateIdea(
+	payload: Record<string, unknown>,
+	correlationId: string,
+): Promise<ActionResult> {
+	const title = payload.title as string | undefined;
+	if (!title || title.trim().length === 0) {
+		return actionResult(false, "create_idea", correlationId, {
+			error: "MISSING_REQUIRED_FIELD",
+			message: "El título es requerido",
+		});
+	}
+
+	try {
+		const idea = await ideaRepository.createIdea({
+			title: title.trim(),
+			description: payload.description as string | undefined,
+			tags: payload.tags as string[] | undefined,
+		});
+
+		return actionResult(true, "create_idea", correlationId, {
+			id: idea.id,
+			title: idea.title,
+			status: idea.status,
+			tags: idea.tags,
+		});
+	} catch (error) {
+		logger.error({ error, correlationId }, "Error creating idea");
+		return actionResult(false, "create_idea", correlationId, {
+			error: "INTERNAL_ERROR",
+			message: "Error al crear la idea",
+		});
+	}
+}
+
+export async function handleUpdateIdea(
+	payload: Record<string, unknown>,
+	correlationId: string,
+): Promise<ActionResult> {
+	const ideaId = payload.idea_id as string | undefined;
+	if (!ideaId) {
+		return actionResult(false, "update_idea", correlationId, {
+			error: "MISSING_REQUIRED_FIELD",
+			message: "idea_id es requerido",
+		});
+	}
+
+	try {
+		const idea = await ideaRepository.getIdeaById(ideaId);
+		if (!idea) {
+			return actionResult(false, "update_idea", correlationId, {
+				error: "IDEA_NOT_FOUND",
+				message: "No existe una idea con el ID proporcionado",
+			});
+		}
+
+		const updated = await ideaRepository.updateIdea(ideaId, {
+			title: payload.title as string | undefined,
+			description: payload.description as string | undefined,
+			tags: payload.tags as string[] | undefined,
+		});
+
+		return actionResult(true, "update_idea", correlationId, {
+			id: updated.id,
+			title: updated.title,
+			status: updated.status,
+			tags: updated.tags,
+		});
+	} catch (error) {
+		logger.error({ error, correlationId }, "Error updating idea");
+		return actionResult(false, "update_idea", correlationId, {
+			error: "INTERNAL_ERROR",
+			message: "Error al actualizar la idea",
+		});
+	}
+}
+
+async function handleIdeaStatusTransition(
+	action: string,
+	payload: Record<string, unknown>,
+	correlationId: string,
+	targetStatus: IdeaStatus,
+): Promise<ActionResult> {
+	const ideaId = payload.idea_id as string | undefined;
+	if (!ideaId) {
+		return actionResult(false, action, correlationId, {
+			error: "MISSING_REQUIRED_FIELD",
+			message: "idea_id es requerido",
+		});
+	}
+
+	try {
+		const idea = await ideaRepository.getIdeaById(ideaId);
+		if (!idea) {
+			return actionResult(false, action, correlationId, {
+				error: "IDEA_NOT_FOUND",
+				message: "No existe una idea con el ID proporcionado",
+			});
+		}
+
+		const transition = transitionIdeaStatus(
+			idea.status as IdeaStatus,
+			targetStatus,
+		);
+		if (!transition.ok) {
+			return actionResult(false, action, correlationId, {
+				error: "INVALID_STATE_TRANSITION",
+				message: `No se puede pasar de ${idea.status} a ${targetStatus}`,
+			});
+		}
+
+		const updated = await ideaRepository.transitionIdeaStatus(ideaId, targetStatus);
+
+		return actionResult(true, action, correlationId, {
+			id: updated.id,
+			status: updated.status,
+		});
+	} catch (error) {
+		logger.error({ error, correlationId }, `Error transitioning idea: ${action}`);
+		return actionResult(false, action, correlationId, {
+			error: "INTERNAL_ERROR",
+			message: "Error al cambiar el estado de la idea",
+		});
+	}
+}
+
+export async function handleEvaluateIdea(
+	payload: Record<string, unknown>,
+	correlationId: string,
+): Promise<ActionResult> {
+	return handleIdeaStatusTransition("evaluate_idea", payload, correlationId, IdeaStatus.EVALUATING);
+}
+
+export async function handleApproveIdea(
+	payload: Record<string, unknown>,
+	correlationId: string,
+): Promise<ActionResult> {
+	return handleIdeaStatusTransition("approve_idea", payload, correlationId, IdeaStatus.APPROVED);
+}
+
+export async function handleDiscardIdea(
+	payload: Record<string, unknown>,
+	correlationId: string,
+): Promise<ActionResult> {
+	return handleIdeaStatusTransition("discard_idea", payload, correlationId, IdeaStatus.DISCARDED);
+}
+
+export async function handleConvertIdea(
+	payload: Record<string, unknown>,
+	correlationId: string,
+): Promise<ActionResult> {
+	return handleIdeaStatusTransition("convert_idea", payload, correlationId, IdeaStatus.CONVERTED);
+}
+
+// ── Entity Link Handlers ──
+
+export async function handleLinkEntities(
+	payload: Record<string, unknown>,
+	correlationId: string,
+): Promise<ActionResult> {
+	const sourceType = payload.source_type as string | undefined;
+	const sourceId = payload.source_id as string | undefined;
+	const targetType = payload.target_type as string | undefined;
+	const targetId = payload.target_id as string | undefined;
+
+	if (!sourceType || !sourceId || !targetType || !targetId) {
+		return actionResult(false, "link_entities", correlationId, {
+			error: "MISSING_REQUIRED_FIELD",
+			message: "source_type, source_id, target_type y target_id son requeridos",
+		});
+	}
+
+	const validation = validateLink({
+		sourceType,
+		sourceId,
+		targetType,
+		targetId,
+		relation: payload.relation as string | undefined,
 	});
+	if (!validation.ok) {
+		return actionResult(false, "link_entities", correlationId, {
+			error: validation.error,
+			message: `Enlace inválido: ${validation.error}`,
+		});
+	}
+
+	try {
+		const link = await entityLinkRepository.createLink({
+			sourceType,
+			sourceId,
+			targetType,
+			targetId,
+			relation: payload.relation as string | undefined,
+			note: payload.note as string | undefined,
+		});
+
+		return actionResult(true, "link_entities", correlationId, {
+			id: link.id,
+			source_type: link.sourceType,
+			source_id: link.sourceId,
+			target_type: link.targetType,
+			target_id: link.targetId,
+			relation: link.relation,
+		});
+	} catch (error) {
+		logger.error({ error, correlationId }, "Error linking entities");
+		return actionResult(false, "link_entities", correlationId, {
+			error: "INTERNAL_ERROR",
+			message: "Error al vincular las entidades",
+		});
+	}
+}
+
+export async function handleUnlinkEntities(
+	payload: Record<string, unknown>,
+	correlationId: string,
+): Promise<ActionResult> {
+	const sourceType = payload.source_type as string | undefined;
+	const sourceId = payload.source_id as string | undefined;
+	const targetType = payload.target_type as string | undefined;
+	const targetId = payload.target_id as string | undefined;
+
+	if (!sourceType || !sourceId || !targetType || !targetId) {
+		return actionResult(false, "unlink_entities", correlationId, {
+			error: "MISSING_REQUIRED_FIELD",
+			message: "source_type, source_id, target_type y target_id son requeridos",
+		});
+	}
+
+	try {
+		await entityLinkRepository.removeLink(sourceType, sourceId, targetType, targetId);
+		return actionResult(true, "unlink_entities", correlationId, {
+			unlinked: true,
+		});
+	} catch (error) {
+		logger.error({ error, correlationId }, "Error unlinking entities");
+		return actionResult(false, "unlink_entities", correlationId, {
+			error: "INTERNAL_ERROR",
+			message: "Error al desvincular las entidades",
+		});
+	}
+}
+
+export async function handleQueryLinks(
+	payload: Record<string, unknown>,
+	correlationId: string,
+): Promise<ActionResult> {
+	const entityType = payload.entity_type as string | undefined;
+	const entityId = payload.entity_id as string | undefined;
+
+	if (!entityType || !entityId) {
+		return actionResult(false, "query_links", correlationId, {
+			error: "MISSING_REQUIRED_FIELD",
+			message: "entity_type y entity_id son requeridos",
+		});
+	}
+
+	try {
+		const links = await entityLinkRepository.getLinksFor(entityType, entityId);
+		return actionResult(true, "query_links", correlationId, {
+			links: links.map((l) => ({
+				id: l.id,
+				source_type: l.sourceType,
+				source_id: l.sourceId,
+				target_type: l.targetType,
+				target_id: l.targetId,
+				relation: l.relation,
+				note: l.note,
+			})),
+		});
+	} catch (error) {
+		logger.error({ error, correlationId }, "Error querying links");
+		return actionResult(false, "query_links", correlationId, {
+			error: "INTERNAL_ERROR",
+			message: "Error al consultar los enlaces",
+		});
+	}
 }
 
 function sortTasksByPriority(
@@ -1630,12 +2010,14 @@ export async function initializeQuickMemory(): Promise<void> {
 		const now = new Date();
 		const weekEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-		const [tasks, objectives, lists, events, memories] = await Promise.all([
+		const [tasks, objectives, lists, events, memories, projects, ideas] = await Promise.all([
 			taskRepository.getActiveTasks(),
 			objectiveRepository.getActiveObjectives(),
 			listRepository.getAllActive(),
 			eventRepository.getEventsByDateRange(now, weekEnd),
 			memoryRepository.getRecentMemories(5),
+			projectRepository.getActiveProjects(),
+			ideaRepository.getActiveIdeas(),
 		]);
 
 		const sortedTasks = sortTasksByPriority(
@@ -1676,6 +2058,13 @@ export async function initializeQuickMemory(): Promise<void> {
 				return `${e.title} (${date})`;
 			});
 
+		const topProjects = (projects as Array<{ title: string; status: string }>)
+			.slice(0, 3)
+			.map((p) => `${p.title} (${p.status})`);
+		const topIdeas = (ideas as Array<{ title: string; status: string }>)
+			.slice(0, 3)
+			.map((i) => `${i.title} (${i.status})`);
+
 		const todayStr = now.toDateString();
 		const dueToday = typedTasks.filter((t) => {
 			if (!t.dueDate) return false;
@@ -1702,6 +2091,8 @@ export async function initializeQuickMemory(): Promise<void> {
 				objectives: topObjectives,
 				lists: topLists,
 				events: topEvents,
+				projects: topProjects,
+				ideas: topIdeas,
 			},
 			todayContext: {
 				dueToday: dueToday.map((t) => t.title),
@@ -1773,8 +2164,21 @@ const ACTION_ROUTER: Record<string, ActionHandler> = {
 	query_events: handleQueryEvents,
 	move_event_instance: handleMoveEventInstance,
 	update_recurrence_rule: handleUpdateRecurrenceRule,
-	link_task_event: handleLinkTaskEvent,
-	unlink_task_event: handleUnlinkTaskEvent,
+	create_project: handleCreateProject,
+	update_project: handleUpdateProject,
+	complete_project: handleCompleteProject,
+	cancel_project: handleCancelProject,
+	pause_project: handlePauseProject,
+	resume_project: handleResumeProject,
+	create_idea: handleCreateIdea,
+	update_idea: handleUpdateIdea,
+	evaluate_idea: handleEvaluateIdea,
+	approve_idea: handleApproveIdea,
+	discard_idea: handleDiscardIdea,
+	convert_idea: handleConvertIdea,
+	link_entities: handleLinkEntities,
+	unlink_entities: handleUnlinkEntities,
+	query_links: handleQueryLinks,
 };
 
 export function getHandler(action: string): ActionHandler | undefined {

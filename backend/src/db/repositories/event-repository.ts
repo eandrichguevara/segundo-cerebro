@@ -158,31 +158,3 @@ export async function getEventExceptions(parentId: string) {
 	return events as unknown as EventRecord[];
 }
 
-export async function linkTaskToEvent(taskId: string, eventId: string) {
-	const link = await prisma.taskEventLink.create({
-		data: { taskId, eventId },
-	});
-	return link;
-}
-
-export async function unlinkTaskFromEvent(taskId: string, eventId: string) {
-	await prisma.taskEventLink.deleteMany({
-		where: { taskId, eventId },
-	});
-}
-
-export async function getLinkedTasks(eventId: string) {
-	const links = await prisma.taskEventLink.findMany({
-		where: { eventId },
-		include: { task: true },
-	});
-	return links.map((l) => l.task);
-}
-
-export async function getLinkedEvents(taskId: string) {
-	const links = await prisma.taskEventLink.findMany({
-		where: { taskId },
-		include: { event: true },
-	});
-	return links.map((l) => l.event as unknown as EventRecord);
-}

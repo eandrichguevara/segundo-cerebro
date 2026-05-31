@@ -7,6 +7,8 @@ export interface QuickMemoryData {
 		objectives: string[];
 		lists: string[];
 		events: string[];
+		projects: string[];
+		ideas: string[];
 	};
 	todayContext: {
 		dueToday: string[];
@@ -46,11 +48,15 @@ export function formatForPrompt(): string {
 	const objectives = current.topData.objectives;
 	const lists = current.topData.lists;
 	const events = current.topData.events;
+	const projects = current.topData.projects;
+	const ideas = current.topData.ideas;
 	if (tasks.length > 0) topItems.push(`Tareas: ${tasks.join(", ")}`);
 	if (objectives.length > 0)
 		topItems.push(`Objetivos: ${objectives.join(", ")}`);
 	if (lists.length > 0) topItems.push(`Listas: ${lists.join(", ")}`);
 	if (events.length > 0) topItems.push(`Eventos: ${events.join(", ")}`);
+	if (projects.length > 0) topItems.push(`Proyectos: ${projects.join(", ")}`);
+	if (ideas.length > 0) topItems.push(`Ideas: ${ideas.join(", ")}`);
 
 	const todayItems: string[] = [];
 	const dueToday = current.todayContext.dueToday;

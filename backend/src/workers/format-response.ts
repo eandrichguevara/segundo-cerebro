@@ -229,19 +229,71 @@ export function formatActionResponse(
 		case "update_recurrence_rule":
 			return "🔄 La recurrencia del evento fue actualizada";
 
-		case "link_task_event": {
-			const linked = payload.linked as number | undefined;
-			return linked
-				? `🔗 Vinculé ${linked} tarea${linked !== 1 ? "s" : ""} con ${linked} evento${linked !== 1 ? "s" : ""}`
-				: "No se pudieron vincular tareas y eventos";
+		case "link_entities": {
+			const relation = payload.relation as string | undefined;
+			return relation
+				? `🔗 Vinculé las entidades (${relation})`
+				: "🔗 Vinculé las entidades";
 		}
 
-		case "unlink_task_event": {
-			const unlinked = payload.unlinked as number | undefined;
-			return unlinked
-				? `🔗 Desvinculé ${unlinked} tarea${unlinked !== 1 ? "s" : ""} de ${unlinked} evento${unlinked !== 1 ? "s" : ""}`
-				: "No se pudieron desvincular tareas y eventos";
+		case "unlink_entities":
+			return "🔗 Desvinculé las entidades";
+
+		case "query_links": {
+			const links = payload.links as Array<unknown> | undefined;
+			const count = links?.length ?? 0;
+			return count > 0
+				? `🔗 Encontré ${count} enlace${count !== 1 ? "s" : ""}`
+				: "No hay enlaces para esta entidad";
 		}
+
+		case "create_project": {
+			const title = payload.title as string | undefined;
+			return title ? `📁 Creé el proyecto "${title}"` : "📁 Creé el proyecto";
+		}
+
+		case "update_project": {
+			const title = payload.title as string | undefined;
+			return title
+				? `📝 Actualicé el proyecto "${title}"`
+				: "📝 El proyecto fue actualizado";
+		}
+
+		case "complete_project":
+			return "🏆 El proyecto fue marcado como completado";
+
+		case "cancel_project":
+			return "❌ El proyecto fue cancelado";
+
+		case "pause_project":
+			return "⏸️ El proyecto fue pausado";
+
+		case "resume_project":
+			return "▶️ El proyecto fue reactivado";
+
+		case "create_idea": {
+			const title = payload.title as string | undefined;
+			return title ? `💡 Anoté la idea "${title}"` : "💡 Anoté la idea";
+		}
+
+		case "update_idea": {
+			const title = payload.title as string | undefined;
+			return title
+				? `📝 Actualicé la idea "${title}"`
+				: "📝 La idea fue actualizada";
+		}
+
+		case "evaluate_idea":
+			return "🔍 La idea pasó a evaluación";
+
+		case "approve_idea":
+			return "✅ La idea fue aprobada";
+
+		case "discard_idea":
+			return "❌ La idea fue descartada";
+
+		case "convert_idea":
+			return "🔄 La idea fue convertida";
 
 		case "update_quick_memory":
 			return "🧠 Contexto actualizado";

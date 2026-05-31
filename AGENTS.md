@@ -138,6 +138,8 @@ interface QuickMemoryData {
 		objectives: string[];   // Top 3 objetivos activos
 		lists: string[];        // Top 2 listas activas
 		events: string[];       // Top 5 eventos próximos (7 días)
+		projects: string[];     // Top 3 proyectos activos
+		ideas: string[];        // Top 3 ideas activas
 	};
 	todayContext: {             // Data que se está usando hoy
 		dueToday: string[];     // Tareas/eventos que vencen hoy
@@ -154,7 +156,7 @@ interface QuickMemoryData {
 `formatForPrompt()` genera un string < 700 tokens (~2800 chars) con 4 secciones opcionales:
 
 1. **Quién soy**: identidad inferida de memorias con `interaction_type: preference_declaration`.
-2. **Data clave**: tareas (prioridad + vencimiento), objetivos, listas, eventos próximos.
+2. **Data clave**: tareas (prioridad + vencimiento), objetivos, listas, eventos próximos, proyectos, ideas.
 3. **Hoy**: tareas/eventos que vencen hoy, en progreso, mención reciente.
 4. **Temas recientes**: palabras clave extraídas de memorias recientes (frecuencia léxica).
 
@@ -168,7 +170,7 @@ Si el string excede 2800 chars, se descartan secciones en orden de prioridad:
 ### Actualización
 
 - La vía lenta genera la acción `update_quick_memory` cuando detecta que el contexto cambió significativamente (después de crear/modificar/eliminar datos).
-- El handler consulta BD en paralelo (tareas, objetivos, listas, eventos, memorias) y reconstruye las 4 secciones.
+- El handler consulta BD en paralelo (tareas, objetivos, listas, eventos, proyectos, ideas, memorias) y reconstruye las 4 secciones.
 - **whoAmI** se auto-infere de memorias con `interaction_type: preference_declaration`.
 - **recentTopics** extrae keywords por frecuencia léxica de las últimas 3 memorias.
 - No se actualiza automáticamente en cada job — solo cuando la vía lenta lo decide.
@@ -287,8 +289,21 @@ La vía lenta produce JSON estructurado que el worker ejecuta como operaciones C
 | `query_events`           | Consultar eventos en un rango de fechas                                                                                                  |
 | `move_event_instance`    | Mover una instancia específica de evento recurrente (crea excepción)                                                                     |
 | `update_recurrence_rule` | Modificar la regla de recurrencia de un evento recurrente                                                                                |
-| `link_task_event`        | Vincular tareas con eventos (relación muchos-a-muchos)                                                                                   |
-| `unlink_task_event`      | Desvincular tareas de eventos                                                                                                            |
+| `create_project`         | Crear un nuevo proyecto                                                                                                                  |
+| `update_project`         | Actualizar campos de un proyecto existente                                                                                               |
+| `complete_project`       | Marcar proyecto como completado                                                                                                          |
+| `cancel_project`         | Cancelar un proyecto (soft delete)                                                                                                       |
+| `pause_project`          | Poner un proyecto en pausa                                                                                                               |
+| `resume_project`         | Reactivar un proyecto en pausa                                                                                                           |
+| `create_idea`            | Crear una nueva idea                                                                                                                     |
+| `update_idea`            | Actualizar campos de una idea existente                                                                                                  |
+| `evaluate_idea`          | Cambiar idea a estado "evaluating"                                                                                                       |
+| `approve_idea`           | Aprobar una idea (estado "approved")                                                                                                     |
+| `discard_idea`           | Descartar una idea (irreversible)                                                                                                        |
+| `convert_idea`           | Convertir una idea aprobada (estado "converted")                                                                                         |
+| `link_entities`          | Vincular cualquier par de entidades (genérico, reemplaza link_task_event)                                                                |
+| `unlink_entities`        | Desvincular cualquier par de entidades                                                                                                   |
+| `query_links`            | Consultar todos los enlaces de una entidad                                                                                               |
 | `update_quick_memory`    | Actualizar la Quick Memory (cache en RAM) con los datos más recientes de la base de datos                                                |
 
 ### Estructura general de acciones
@@ -864,45 +879,126 @@ Ejemplo:
 }
 ```
 
-#### `link_task_event`
+#### `create_project`
 
-| Campo       | Tipo               | Requerido | Descripción                      |
-| ----------- | ------------------ | --------- | -------------------------------- |
-| `task_ids`  | string \| string[] | Sí        | UUID o array de UUIDs de tareas  |
-| `event_ids` | string \| string[] | Sí        | UUID o array de UUIDs de eventos |
+| Campo         | Tipo   | Requerido | Descripción                                   |
+| ------------- | ------ | --------- | --------------------------------------------- |
+| `title`       | string | Sí        | Título del proyecto                            |
+| `description` | string | No        | Descripción detallada                          |
+| `category`    | string | No        | Categoría libre (ej: "trabajo", "personal")    |
+| `deadline`    | string | No        | Fecha límite en ISO 8601                       |
 
-Establece una relación muchos-a-muchos: varias tareas pueden vincularse a varios eventos.
-
-Ejemplo:
-
-```json
-{
-	"action": "link_task_event",
-	"payload": {
-		"task_ids": ["t1-uuid", "t2-uuid"],
-		"event_ids": ["ev1-uuid"]
-	}
-}
-```
-
-#### `unlink_task_event`
-
-| Campo       | Tipo               | Requerido | Descripción                      |
-| ----------- | ------------------ | --------- | -------------------------------- |
-| `task_ids`  | string \| string[] | Sí        | UUID o array de UUIDs de tareas  |
-| `event_ids` | string \| string[] | Sí        | UUID o array de UUIDs de eventos |
+Estados: `active` → `paused` / `completed` (irreversible) / `cancelled` (irreversible). `paused` → `active` / `cancelled`.
 
 Ejemplo:
 
 ```json
 {
-	"action": "unlink_task_event",
+	"action": "create_project",
 	"payload": {
-		"task_ids": ["t1-uuid"],
-		"event_ids": ["ev1-uuid"]
+		"title": "Rediseñar la app",
+		"category": "trabajo",
+		"deadline": "2026-08-31T23:59:59Z"
 	}
 }
 ```
+
+#### `update_project`
+
+| Campo         | Tipo   | Requerido | Descripción                        |
+| ------------- | ------ | --------- | ---------------------------------- |
+| `project_id`  | string | Sí        | UUID del proyecto a actualizar     |
+| `title`       | string | No        | Nuevo título                       |
+| `description` | string | No        | Nueva descripción                  |
+| `category`    | string | No        | Nueva categoría                    |
+| `deadline`    | string | No        | Nueva fecha límite (ISO 8601)      |
+
+#### `complete_project` / `cancel_project` / `pause_project` / `resume_project`
+
+| Campo        | Tipo   | Requerido | Descripción                    |
+| ------------ | ------ | --------- | ------------------------------ |
+| `project_id` | string | Sí        | UUID del proyecto              |
+
+#### `create_idea`
+
+| Campo         | Tipo     | Requerido | Descripción                |
+| ------------- | -------- | --------- | -------------------------- |
+| `title`       | string   | Sí        | Título de la idea          |
+| `description` | string   | No        | Descripción detallada      |
+| `tags`        | string[] | No        | Array de tags/categorías   |
+
+Estados: `new_idea` → `evaluating` → `approved` / `discarded` (irreversible). `approved` → `converted` (irreversible). `evaluating` → `new_idea` (re-evaluar).
+
+Ejemplo:
+
+```json
+{
+	"action": "create_idea",
+	"payload": {
+		"title": "Integrar pagos con MercadoPago",
+		"tags": ["fintech", "integración"]
+	}
+}
+```
+
+#### `update_idea`
+
+| Campo         | Tipo     | Requerido | Descripción                  |
+| ------------- | -------- | --------- | ---------------------------- |
+| `idea_id`     | string   | Sí        | UUID de la idea a actualizar |
+| `title`       | string   | No        | Nuevo título                 |
+| `description` | string   | No        | Nueva descripción            |
+| `tags`        | string[] | No        | Nuevos tags                  |
+
+#### `evaluate_idea` / `approve_idea` / `discard_idea` / `convert_idea`
+
+| Campo     | Tipo   | Requerido | Descripción         |
+| --------- | ------ | --------- | ------------------- |
+| `idea_id` | string | Sí        | UUID de la idea     |
+
+#### `link_entities`
+
+| Campo         | Tipo   | Requerido | Descripción                                                                  |
+| ------------- | ------ | --------- | ---------------------------------------------------------------------------- |
+| `source_type` | string | Sí        | Tipo de entidad origen: `task`, `objective`, `project`, `idea`, `list`, `event` |
+| `source_id`   | string | Sí        | UUID de la entidad origen                                                    |
+| `target_type` | string | Sí        | Tipo de entidad destino                                                      |
+| `target_id`   | string | Sí        | UUID de la entidad destino                                                   |
+| `relation`    | string | No        | Tipo de relación: `related` (default), `part_of`, `depends_on`, `inspired_by`, `blocks` |
+| `note`        | string | No        | Nota opcional del enlace                                                     |
+
+Enlace genérico que reemplaza `link_task_event`. Permite vincular **cualquier entidad con cualquier otra**.
+
+Ejemplo:
+
+```json
+{
+	"action": "link_entities",
+	"payload": {
+		"source_type": "idea",
+		"source_id": "idea-uuid",
+		"target_type": "project",
+		"target_id": "proj-uuid",
+		"relation": "part_of"
+	}
+}
+```
+
+#### `unlink_entities`
+
+| Campo         | Tipo   | Requerido | Descripción              |
+| ------------- | ------ | --------- | ------------------------ |
+| `source_type` | string | Sí        | Tipo de entidad origen   |
+| `source_id`   | string | Sí        | UUID de la entidad origen|
+| `target_type` | string | Sí        | Tipo de entidad destino  |
+| `target_id`   | string | Sí        | UUID de la entidad destino|
+
+#### `query_links`
+
+| Campo         | Tipo   | Requerido | Descripción                        |
+| ------------- | ------ | --------- | ---------------------------------- |
+| `entity_type` | string | Sí        | Tipo de entidad a consultar        |
+| `entity_id`   | string | Sí        | UUID de la entidad a consultar     |
 
 #### `respond`
 
@@ -1286,7 +1382,7 @@ Formato básico de mensajes entre cliente y servidor. Todos los mensajes incluye
 { "version": "1", "type": "audio_end", "correlation_id": "<uuid-v4>" }
 { "version": "1", "type": "text", "content": "<texto>", "correlation_id": "<uuid-v4>" }
 { "version": "1", "type": "processing", "content": "<texto>", "correlation_id": "<uuid-v4>" }
-{ "version": "1", "type": "action_result", "ok": true, "action": "<respond|create_task|start_task|update_task|complete_task|cancel_task|postpone_task|create_objective|update_objective|complete_objective|cancel_objective|pause_objective|resume_objective|store_memory|query_list|create_list|add_list_items|check_list_item|uncheck_list_item|complete_list|cancel_list|create_event|update_event|delete_event|query_events|move_event_instance|update_recurrence_rule|link_task_event|unlink_task_event>", "correlation_id": "<uuid-v4>", "payload": { ... } }
+{ "version": "1", "type": "action_result", "ok": true, "action": "<respond|create_task|start_task|update_task|complete_task|cancel_task|postpone_task|create_objective|update_objective|complete_objective|cancel_objective|pause_objective|resume_objective|store_memory|query_list|create_list|add_list_items|check_list_item|uncheck_list_item|complete_list|cancel_list|create_event|update_event|delete_event|query_events|move_event_instance|update_recurrence_rule|create_project|update_project|complete_project|cancel_project|pause_project|resume_project|create_idea|update_idea|evaluate_idea|approve_idea|discard_idea|convert_idea|link_entities|unlink_entities|query_links>", "correlation_id": "<uuid-v4>", "payload": { ... } }
 { "version": "1", "type": "notification", "level": "<warning|reminder>", "message": "...", "correlation_id": "<uuid-v4>" }
 { "version": "1", "type": "error", "code": "<code>", "message": "...", "correlation_id": "<uuid-v4>" }
 ```
@@ -1669,9 +1765,9 @@ Cada vez que se realice una modificación al proyecto (agregar funcionalidad, co
 
 #### Backend – Calendario (Eventos)
 
-- [x] Schema Prisma: Event + TaskEventLink + EventStatus
+- [x] Schema Prisma: Event + EventStatus
 - [x] Dominio: máquina de estados de eventos + lógica de recurrencia
-- [x] Repositorio: event-repository.ts con CRUD, recurrencia, excepciones, links
+- [x] Repositorio: event-repository.ts con CRUD, recurrencia, excepciones
 - [x] Tests de dominio (event.test.ts) y repositorio (event-repository.test.ts)
 - [x] `create_event`
 - [x] `update_event`
@@ -1679,11 +1775,24 @@ Cada vez que se realice una modificación al proyecto (agregar funcionalidad, co
 - [x] `query_events`
 - [x] `move_event_instance` (excepciones de recurrencia)
 - [x] `update_recurrence_rule`
-- [x] `link_task_event`
-- [x] `unlink_task_event`
 - [x] Prompt del slow lane: sección de eventos próximos + nuevas acciones
 - [x] Contexto de eventos próximos en slow-lane-processor
 - [x] Tests de integración (action-handlers.test.ts)
+
+#### Backend – Proyectos, Ideas y Enlaces Universales
+
+- [x] Schema Prisma: Project + Idea + EntityLink + ProjectStatus + IdeaStatus + EntityType
+- [x] Dominio: project.ts, idea.ts, entity-link.ts (máquinas de estado + validación)
+- [x] Repositorios: project-repository.ts, idea-repository.ts, entity-link-repository.ts
+- [x] Eliminación de TaskEventLink (tabla + código)
+- [x] `create_project`, `update_project`, `complete_project`, `cancel_project`, `pause_project`, `resume_project`
+- [x] `create_idea`, `update_idea`, `evaluate_idea`, `approve_idea`, `discard_idea`, `convert_idea`
+- [x] `link_entities`, `unlink_entities`, `query_links`
+- [x] Prompt del slow lane: secciones de proyectos e ideas + link_entities
+- [x] Contexto de proyectos e ideas en slow-lane-processor
+- [x] Quick Memory actualizada con projects e ideas
+- [x] Display types: ProjectDisplay + IdeaDisplay
+- [x] Format response para todas las nuevas acciones
 
 #### Backend – Respuesta conversacional
 

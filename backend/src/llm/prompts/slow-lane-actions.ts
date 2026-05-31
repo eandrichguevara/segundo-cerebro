@@ -93,11 +93,51 @@ Payload: { event_id: UUID, new_start_time: ISO8601, new_end_time?: ISO8601, exce
 ### update_recurrence_rule
 Payload: { event_id: UUID, recurrence_rule: object }
 
-### link_task_event
-Payload: { task_ids: UUID|UUID[], event_ids: UUID|UUID[] }
+### link_entities
+Payload: { source_type: EntityType, source_id: UUID, target_type: EntityType, target_id: UUID, relation?: "related"|"part_of"|"depends_on"|"inspired_by"|"blocks", note?: string }
+EntityType: "task"|"objective"|"project"|"idea"|"list"|"event"
 
-### unlink_task_event
-Payload: { task_ids: UUID|UUID[], event_ids: UUID|UUID[] }
+### unlink_entities
+Payload: { source_type: EntityType, source_id: UUID, target_type: EntityType, target_id: UUID }
+
+### query_links
+Payload: { entity_type: EntityType, entity_id: UUID }
+
+### create_project
+Payload: { title: string, description?: string, category?: string, deadline?: ISO8601 }
+
+### update_project
+Payload: { project_id: UUID, title?, description?, category?, deadline? }
+
+### complete_project
+Payload: { project_id: UUID }
+
+### cancel_project
+Payload: { project_id: UUID }
+
+### pause_project
+Payload: { project_id: UUID }
+
+### resume_project
+Payload: { project_id: UUID }
+
+### create_idea
+Payload: { title: string, description?: string, tags?: string[] }
+
+### update_idea
+Payload: { idea_id: UUID, title?, description?, tags? }
+
+### evaluate_idea
+Payload: { idea_id: UUID }
+
+### approve_idea
+Payload: { idea_id: UUID }
+
+### discard_idea
+Payload: { idea_id: UUID }
+
+### convert_idea
+Payload: { idea_id: UUID }
 
 ### update_quick_memory
 Payload: {}

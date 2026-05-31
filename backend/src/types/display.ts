@@ -34,9 +34,26 @@ export type MemoryDisplay = {
 	content: string;
 };
 
+export type ProjectDisplay = {
+	type: "project";
+	title: string;
+	status: "active" | "paused" | "completed" | "cancelled";
+	category?: string;
+	deadline?: string;
+};
+
+export type IdeaDisplay = {
+	type: "idea";
+	title: string;
+	status: "new_idea" | "evaluating" | "approved" | "discarded" | "converted";
+	tags?: string[];
+};
+
 export type DisplayEntity =
 	| TaskDisplay
 	| ListDisplay
 	| ObjectiveDisplay
 	| EventDisplay
-	| MemoryDisplay;
+	| MemoryDisplay
+	| ProjectDisplay
+	| IdeaDisplay;
