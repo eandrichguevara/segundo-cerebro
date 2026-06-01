@@ -157,4 +157,3 @@ export async function getEventExceptions(parentId: string) {
 	});
 	return events as unknown as EventRecord[];
 }
-

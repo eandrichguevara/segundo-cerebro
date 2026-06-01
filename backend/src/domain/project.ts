@@ -24,10 +24,7 @@ const VALID_TRANSITIONS: Record<ProjectStatus, ProjectStatus[]> = {
 	[ProjectStatus.CANCELLED]: [],
 };
 
-export function canTransition(
-	from: ProjectStatus,
-	to: ProjectStatus,
-): boolean {
+export function canTransition(from: ProjectStatus, to: ProjectStatus): boolean {
 	return VALID_TRANSITIONS[from]?.includes(to) ?? false;
 }
 

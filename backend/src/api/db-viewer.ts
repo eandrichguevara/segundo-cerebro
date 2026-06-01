@@ -1,43 +1,58 @@
 import type { FastifyInstance } from "fastify";
 import { prisma } from "../db/index.js";
 
-async function attachLinks<T extends { id: string }>(items: T[], type: string) {
+type EntityType = "task" | "objective" | "project" | "idea" | "list" | "event";
+
+interface TitleFetchModel {
+	findMany(args: {
+		where: { id: { in: string[] } };
+		select: { id: true; title: true };
+	}): Promise<Array<{ id: string; title: string }>>;
+}
+
+async function attachLinks<T extends { id: string }>(
+	items: T[],
+	type: EntityType,
+) {
 	if (items.length === 0) return items;
-	const ids = items.map(i => i.id);
+	const ids = items.map((i) => i.id);
 
 	const links = await prisma.entityLink.findMany({
 		where: {
 			OR: [
-				{ sourceId: { in: ids }, sourceType: type as any },
-				{ targetId: { in: ids }, targetType: type as any }
-			]
-		}
+				{ sourceId: { in: ids }, sourceType: type },
+				{ targetId: { in: ids }, targetType: type },
+			],
+		},
 	});
 
 	if (links.length === 0) {
-		return items.map(item => ({ ...item, links: [] }));
+		return items.map((item) => ({ ...item, links: [] }));
 	}
 
 	const typeToIds = new Map<string, Set<string>>();
 	for (const l of links) {
 		if (ids.includes(l.sourceId) && l.sourceType === type) {
 			if (!typeToIds.has(l.targetType)) typeToIds.set(l.targetType, new Set());
-			typeToIds.get(l.targetType)!.add(l.targetId);
+			typeToIds.get(l.targetType)?.add(l.targetId);
 		}
 		if (ids.includes(l.targetId) && l.targetType === type) {
 			if (!typeToIds.has(l.sourceType)) typeToIds.set(l.sourceType, new Set());
-			typeToIds.get(l.sourceType)!.add(l.sourceId);
+			typeToIds.get(l.sourceType)?.add(l.sourceId);
 		}
 	}
 
 	const titlesMap = new Map<string, string>();
-	const fetchTitles = async (entity: string, model: any) => {
-		if (typeToIds.has(entity)) {
+	const fetchTitles = async (entity: string, model: TitleFetchModel) => {
+		const entityIds = typeToIds.get(entity);
+		if (entityIds) {
 			const rows = await model.findMany({
-				where: { id: { in: Array.from(typeToIds.get(entity)!) } },
-				select: { id: true, title: true }
+				where: { id: { in: Array.from(entityIds) } },
+				select: { id: true, title: true },
 			});
-			rows.forEach((r: any) => titlesMap.set(r.id, r.title));
+			for (const r of rows) {
+				titlesMap.set(r.id, r.title);
+			}
 		}
 	};
 
@@ -50,10 +65,14 @@ async function attachLinks<T extends { id: string }>(items: T[], type: string) {
 		fetchTitles("event", prisma.event),
 	]);
 
-	return items.map(item => {
+	return items.map((item) => {
 		const itemLinks = links
-			.filter(l => (l.sourceId === item.id && l.sourceType === type) || (l.targetId === item.id && l.targetType === type))
-			.map(l => {
+			.filter(
+				(l) =>
+					(l.sourceId === item.id && l.sourceType === type) ||
+					(l.targetId === item.id && l.targetType === type),
+			)
+			.map((l) => {
 				const isSource = l.sourceId === item.id && l.sourceType === type;
 				const linkedType = isSource ? l.targetType : l.sourceType;
 				const linkedId = isSource ? l.targetId : l.sourceId;
@@ -62,7 +81,7 @@ async function attachLinks<T extends { id: string }>(items: T[], type: string) {
 					linkedType,
 					linkedId,
 					linkedTitle: titlesMap.get(linkedId) ?? "Desconocido",
-					relation: l.relation
+					relation: l.relation,
 				};
 			});
 		return { ...item, links: itemLinks };
@@ -105,7 +124,12 @@ export async function dbViewerRoutes(app: FastifyInstance): Promise<void> {
 			priority: t.priority,
 			objectiveId: t.objectiveId,
 			objectiveTitle: (t as unknown as Record<string, unknown>).objective
-				? ((t as unknown as Record<string, unknown>).objective as Record<string, string>).title
+				? (
+						(t as unknown as Record<string, unknown>).objective as Record<
+							string,
+							string
+						>
+					).title
 				: null,
 			createdAt: t.createdAt.toISOString(),
 			updatedAt: t.updatedAt.toISOString(),
@@ -143,9 +167,12 @@ export async function dbViewerRoutes(app: FastifyInstance): Promise<void> {
 		]);
 
 		const mappedData = data.map((o) => {
-			const tasks = (o as unknown as Record<string, unknown>).tasks as Array<Record<string, string>>;
+			const tasks = (o as unknown as Record<string, unknown>).tasks as Array<
+				Record<string, string>
+			>;
 			const totalTasks = tasks?.length ?? 0;
-			const completedTasks = tasks?.filter((t) => t.status === "completed").length ?? 0;
+			const completedTasks =
+				tasks?.filter((t) => t.status === "completed").length ?? 0;
 			return {
 				id: o.id,
 				title: o.title,
@@ -472,4 +499,3 @@ export async function dbViewerRoutes(app: FastifyInstance): Promise<void> {
 		};
 	});
 }
-

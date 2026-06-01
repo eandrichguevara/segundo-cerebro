@@ -266,5 +266,4 @@ describe("event repository", () => {
 			expect(result.parentId).toBe("event-1");
 		});
 	});
-
 });

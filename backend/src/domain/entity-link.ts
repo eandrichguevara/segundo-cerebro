@@ -42,18 +42,17 @@ export interface LinkInput {
 export function validateLink(
 	input: LinkInput,
 ): Result<LinkInput, EntityLinkError> {
-	if (
-		!VALID_ENTITY_TYPES.includes(input.sourceType as EntityType)
-	) {
+	if (!VALID_ENTITY_TYPES.includes(input.sourceType as EntityType)) {
 		return err(EntityLinkError.INVALID_ENTITY_TYPE);
 	}
-	if (
-		!VALID_ENTITY_TYPES.includes(input.targetType as EntityType)
-	) {
+	if (!VALID_ENTITY_TYPES.includes(input.targetType as EntityType)) {
 		return err(EntityLinkError.INVALID_ENTITY_TYPE);
 	}
 
-	if (input.sourceType === input.targetType && input.sourceId === input.targetId) {
+	if (
+		input.sourceType === input.targetType &&
+		input.sourceId === input.targetId
+	) {
 		return err(EntityLinkError.SELF_LINK);
 	}
 

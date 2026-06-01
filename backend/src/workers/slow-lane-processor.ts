@@ -296,7 +296,7 @@ async function processJob(): Promise<void> {
 			| string
 			| undefined;
 
-	const [
+		const [
 			conversationTurns,
 			recentMemories,
 			activeObjectives,

@@ -1565,7 +1565,10 @@ async function handleProjectStatusTransition(
 			status: updated.status,
 		});
 	} catch (error) {
-		logger.error({ error, correlationId }, `Error transitioning project: ${action}`);
+		logger.error(
+			{ error, correlationId },
+			`Error transitioning project: ${action}`,
+		);
 		return actionResult(false, action, correlationId, {
 			error: "INTERNAL_ERROR",
 			message: "Error al cambiar el estado del proyecto",
@@ -1577,28 +1580,48 @@ export async function handleCompleteProject(
 	payload: Record<string, unknown>,
 	correlationId: string,
 ): Promise<ActionResult> {
-	return handleProjectStatusTransition("complete_project", payload, correlationId, ProjectStatus.COMPLETED);
+	return handleProjectStatusTransition(
+		"complete_project",
+		payload,
+		correlationId,
+		ProjectStatus.COMPLETED,
+	);
 }
 
 export async function handleCancelProject(
 	payload: Record<string, unknown>,
 	correlationId: string,
 ): Promise<ActionResult> {
-	return handleProjectStatusTransition("cancel_project", payload, correlationId, ProjectStatus.CANCELLED);
+	return handleProjectStatusTransition(
+		"cancel_project",
+		payload,
+		correlationId,
+		ProjectStatus.CANCELLED,
+	);
 }
 
 export async function handlePauseProject(
 	payload: Record<string, unknown>,
 	correlationId: string,
 ): Promise<ActionResult> {
-	return handleProjectStatusTransition("pause_project", payload, correlationId, ProjectStatus.PAUSED);
+	return handleProjectStatusTransition(
+		"pause_project",
+		payload,
+		correlationId,
+		ProjectStatus.PAUSED,
+	);
 }
 
 export async function handleResumeProject(
 	payload: Record<string, unknown>,
 	correlationId: string,
 ): Promise<ActionResult> {
-	return handleProjectStatusTransition("resume_project", payload, correlationId, ProjectStatus.ACTIVE);
+	return handleProjectStatusTransition(
+		"resume_project",
+		payload,
+		correlationId,
+		ProjectStatus.ACTIVE,
+	);
 }
 
 // ── Idea Handlers ──
@@ -1713,14 +1736,20 @@ async function handleIdeaStatusTransition(
 			});
 		}
 
-		const updated = await ideaRepository.transitionIdeaStatus(ideaId, targetStatus);
+		const updated = await ideaRepository.transitionIdeaStatus(
+			ideaId,
+			targetStatus,
+		);
 
 		return actionResult(true, action, correlationId, {
 			id: updated.id,
 			status: updated.status,
 		});
 	} catch (error) {
-		logger.error({ error, correlationId }, `Error transitioning idea: ${action}`);
+		logger.error(
+			{ error, correlationId },
+			`Error transitioning idea: ${action}`,
+		);
 		return actionResult(false, action, correlationId, {
 			error: "INTERNAL_ERROR",
 			message: "Error al cambiar el estado de la idea",
@@ -1732,28 +1761,48 @@ export async function handleEvaluateIdea(
 	payload: Record<string, unknown>,
 	correlationId: string,
 ): Promise<ActionResult> {
-	return handleIdeaStatusTransition("evaluate_idea", payload, correlationId, IdeaStatus.EVALUATING);
+	return handleIdeaStatusTransition(
+		"evaluate_idea",
+		payload,
+		correlationId,
+		IdeaStatus.EVALUATING,
+	);
 }
 
 export async function handleApproveIdea(
 	payload: Record<string, unknown>,
 	correlationId: string,
 ): Promise<ActionResult> {
-	return handleIdeaStatusTransition("approve_idea", payload, correlationId, IdeaStatus.APPROVED);
+	return handleIdeaStatusTransition(
+		"approve_idea",
+		payload,
+		correlationId,
+		IdeaStatus.APPROVED,
+	);
 }
 
 export async function handleDiscardIdea(
 	payload: Record<string, unknown>,
 	correlationId: string,
 ): Promise<ActionResult> {
-	return handleIdeaStatusTransition("discard_idea", payload, correlationId, IdeaStatus.DISCARDED);
+	return handleIdeaStatusTransition(
+		"discard_idea",
+		payload,
+		correlationId,
+		IdeaStatus.DISCARDED,
+	);
 }
 
 export async function handleConvertIdea(
 	payload: Record<string, unknown>,
 	correlationId: string,
 ): Promise<ActionResult> {
-	return handleIdeaStatusTransition("convert_idea", payload, correlationId, IdeaStatus.CONVERTED);
+	return handleIdeaStatusTransition(
+		"convert_idea",
+		payload,
+		correlationId,
+		IdeaStatus.CONVERTED,
+	);
 }
 
 // ── Entity Link Handlers ──
@@ -1832,7 +1881,12 @@ export async function handleUnlinkEntities(
 	}
 
 	try {
-		await entityLinkRepository.removeLink(sourceType, sourceId, targetType, targetId);
+		await entityLinkRepository.removeLink(
+			sourceType,
+			sourceId,
+			targetType,
+			targetId,
+		);
 		return actionResult(true, "unlink_entities", correlationId, {
 			unlinked: true,
 		});
@@ -2010,15 +2064,16 @@ export async function initializeQuickMemory(): Promise<void> {
 		const now = new Date();
 		const weekEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-		const [tasks, objectives, lists, events, memories, projects, ideas] = await Promise.all([
-			taskRepository.getActiveTasks(),
-			objectiveRepository.getActiveObjectives(),
-			listRepository.getAllActive(),
-			eventRepository.getEventsByDateRange(now, weekEnd),
-			memoryRepository.getRecentMemories(5),
-			projectRepository.getActiveProjects(),
-			ideaRepository.getActiveIdeas(),
-		]);
+		const [tasks, objectives, lists, events, memories, projects, ideas] =
+			await Promise.all([
+				taskRepository.getActiveTasks(),
+				objectiveRepository.getActiveObjectives(),
+				listRepository.getAllActive(),
+				eventRepository.getEventsByDateRange(now, weekEnd),
+				memoryRepository.getRecentMemories(5),
+				projectRepository.getActiveProjects(),
+				ideaRepository.getActiveIdeas(),
+			]);
 
 		const sortedTasks = sortTasksByPriority(
 			tasks as Array<{ priority?: string; dueDate?: Date | null }>,
