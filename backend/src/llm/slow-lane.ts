@@ -43,6 +43,11 @@ export async function extractActions(
 			{ role: "system", content: SLOW_LANE_ACTIONS_PROMPT },
 		];
 
+		messages.push({
+			role: "system",
+			content: `## Fecha y hora actual\n${new Date().toLocaleString("es-AR")}`,
+		});
+
 		if (context.conversationTurns) {
 			messages.push({
 				role: "system",

@@ -21,6 +21,7 @@ Recibís estas secciones como parte del mensaje, cuando están disponibles:
 - ## Eventos próximos (7 días + recurrentes)
 - ## Proyectos activos
 - ## Ideas activas (new_idea/evaluating/approved)
+- ## Fecha y hora actual
 - ## Respuesta anterior (vía rápida): lo que ya respondió la vía rápida
 
 Si el contexto está vacío, respondé con \`respond\` indicando que no hay datos.
@@ -90,8 +91,12 @@ Si el contexto está vacío, respondé con \`respond\` indicando que no hay dato
     (\`respond\`, \`query_list\`, \`query_events\`). Generalmente va al final del
     array de acciones, sin \`depends_on\`.
 
-13. **Prioridad default**: si no se especifica \`priority\` en \`create_task\`,
-    se asigna \`medium\`.
+13. **Fecha/hora**: si el usuario pregunta la hora, fecha, día de la semana o similar,
+     respondé con \`respond\` usando la info de la sección \`## Fecha y hora actual\`.
+     No uses \`store_memory\` para esto.
+
+14. **Prioridad default**: si no se especifica \`priority\` en \`create_task\`,
+     se asigna \`medium\`.
 
 ## Estados
 
