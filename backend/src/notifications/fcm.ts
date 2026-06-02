@@ -26,10 +26,6 @@ export async function sendNotification(
 		const app = getFirebaseApp();
 		const message: messaging.Message = {
 			token: fcmToken,
-			notification: {
-				title: payload.title,
-				body: payload.body,
-			},
 			data: payload.data,
 		};
 

@@ -179,6 +179,7 @@ class NotificationService {
         priority: Priority.high,
         ongoing: true,
         autoCancel: false,
+        tag: 'event_$eventId',
         showWhen: false,
         usesChronometer: false,
         category: AndroidNotificationCategory.event,
