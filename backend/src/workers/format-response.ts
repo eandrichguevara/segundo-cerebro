@@ -295,6 +295,8 @@ export function formatActionResponse(
 		case "convert_idea":
 			return "🔄 La idea fue convertida";
 
+		case "update_conversation_topics":
+			return "";
 		case "update_quick_memory":
 			return "🧠 Contexto actualizado";
 

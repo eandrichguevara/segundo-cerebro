@@ -42,8 +42,9 @@ src/
 2. Servidor acumula chunks, al recibir `audio_end` envía el buffer a Whisper.
 3. Texto transcrito → Quick Memory + fast-lane LLM (modelo configurable via `OPENAI_FAST_MODEL`) → respuesta textual.
 4. Respuesta enviada al cliente vía WebSocket (`text` + `audio_end` para cerrar turno).
-5. Mensajes `processing` enviados mientras la vía lenta procesa.
-6. Si falla (timeout/error): envía "Un momento, estoy procesando..." + `audio_end`.
+5. Tras cada respuesta exitosa, la vía rápida actualiza el buffer de conversación en Quick Memory via `appendConversation()`.
+6. Mensajes `processing` enviados mientras la vía lenta procesa.
+7. Si falla (timeout/error): envía "Un momento, estoy procesando..." + `audio_end`.
 
 **Vía lenta**:
 
@@ -133,15 +134,23 @@ interface QuickMemoryData {
 		recentMentions: string;
 	};
 	recentTopics: string;
+	recentConversation: string[];
+	lastTopics: string;
 	updatedAt: Date;
 }
 ```
 
-`formatForPrompt()` genera string < 700 tokens (~2800 chars) con 4 secciones. Si excede, trunca en orden: Temas recientes → Hoy → Data clave + Quién soy (siempre preservados).
+`formatForPrompt()` genera string < 700 tokens (~2800 chars) con 6 secciones. Si excede, trunca en orden: Conversación reciente → Temas recientes → Hoy → Data clave + Quién soy (siempre preservados).
 
-Actualizada por la vía lenta via acción `update_quick_memory`. **whoAmI** se infiere de memorias con `interaction_type: preference_declaration`. **recentTopics** extrae keywords por frecuencia léxica de últimas 3 memorias.
+Actualizada por:
+- **Vía rápida**: `appendConversation(userMsg, assistantMsgs)` — buffer in-memory de últimos 6 exchanges (usuario + asistente), llamado tras cada respuesta exitosa
+- **Vía lenta**: `update_quick_memory` (contexto general desde BD) y `update_conversation_topics` (últimas 2 temáticas)
 
-**Ubicación**: `backend/src/domain/quick-memory.ts`, `backend/src/workers/action-handlers.ts` (handleUpdateQuickMemory), `backend/src/api/ws.ts` (inyección), `backend/src/llm/prompts/fast-lane-system.ts`.
+**whoAmI** se infiere de memorias con `interaction_type: preference_declaration`. **recentTopics** extrae keywords por frecuencia léxica de últimas 3 memorias (largo plazo). **lastTopics** lo setea la vía lenta (corto plazo, conversación actual). **recentConversation** se mantiene en memoria por la vía rápida.
+
+Funciones exportadas: `update()`, `get()`, `isEmpty()`, `formatForPrompt()`, `appendConversation()`, `clearConversation()`, `updateLastTopics()`.
+
+**Ubicación**: `backend/src/domain/quick-memory.ts`, `backend/src/workers/action-handlers.ts` (handleUpdateQuickMemory, handleUpdateConversationTopics), `backend/src/api/ws.ts` (appendConversation, clearConversation), `backend/src/llm/prompts/fast-lane-system.ts`, `backend/src/llm/prompts/slow-lane-system.ts` (regla de tema).
 
 ### Acciones de la vía lenta
 
@@ -378,6 +387,21 @@ Todas usan `idea_id` (UUID). `update_idea` acepta `title`, `description`, `tags`
 | `text` | string | Sí        | Respuesta natural en español |
 
 Responde al usuario con texto conversacional usando contexto. **No** almacenar información (usar `store_memory`). Puede incluir `display` opcional con entidades estructuradas.
+
+#### `update_conversation_topics`
+
+| Campo    | Tipo   | Requerido | Descripción                                       |
+| -------- | ------ | --------- | ------------------------------------------------- |
+| `topics` | string | Sí        | Últimas 2 temáticas de conversación (separadas por coma) |
+
+Acción interna (sin mensaje al usuario). La vía lenta la determina al inicio del array de acciones, basándose en el análisis de la conversación actual. Actualiza `lastTopics` en el Quick Memory para que la vía rápida tenga contexto temático.
+
+```json
+{
+	"action": "update_conversation_topics",
+	"payload": { "topics": "presupuesto, compras supermercado" }
+}
+```
 
 #### `query_list`
 

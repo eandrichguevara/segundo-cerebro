@@ -34,7 +34,10 @@ import {
 	ProjectStatus,
 	transitionStatus as transitionProjectStatus,
 } from "../domain/project.js";
-import { update as updateQuickMemory } from "../domain/quick-memory.js";
+import {
+	updateLastTopics,
+	update as updateQuickMemory,
+} from "../domain/quick-memory.js";
 import {
 	TaskStatus,
 	transitionStatus as transitionTaskStatus,
@@ -2158,6 +2161,8 @@ export async function initializeQuickMemory(): Promise<void> {
 						: "",
 			},
 			recentTopics,
+			recentConversation: [],
+			lastTopics: "",
 			updatedAt: now,
 		});
 
@@ -2165,6 +2170,18 @@ export async function initializeQuickMemory(): Promise<void> {
 	} catch (error) {
 		logger.error({ error }, "Error initializing quick memory");
 	}
+}
+
+export async function handleUpdateConversationTopics(
+	payload: Record<string, unknown>,
+	correlationId: string,
+): Promise<ActionResult> {
+	const topics = (payload.topics as string) ?? "";
+	updateLastTopics(topics);
+	logger.info({ topics, correlationId }, "Conversation topics updated");
+	return actionResult(true, "update_conversation_topics", correlationId, {
+		topics,
+	});
 }
 
 export async function handleUpdateQuickMemory(
@@ -2193,6 +2210,7 @@ export type ActionHandler = (
 const ACTION_ROUTER: Record<string, ActionHandler> = {
 	respond: handleRespond,
 	query_list: handleQueryList,
+	update_conversation_topics: handleUpdateConversationTopics,
 	update_quick_memory: handleUpdateQuickMemory,
 	create_task: handleCreateTask,
 	start_task: handleStartTask,

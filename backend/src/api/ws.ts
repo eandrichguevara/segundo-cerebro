@@ -8,7 +8,11 @@ import { addTurn } from "../db/repositories/conversation-repository.js";
 import * as deviceRepository from "../db/repositories/device-repository.js";
 import { enqueueJob } from "../db/repositories/job-repository.js";
 import { type ClientMessage, VALID_CLIENT_TYPES } from "../domain/message.js";
-import { formatForPrompt } from "../domain/quick-memory.js";
+import {
+	appendConversation,
+	clearConversation,
+	formatForPrompt,
+} from "../domain/quick-memory.js";
 import { LlmError, getFastResponse } from "../llm/fast-lane.js";
 import { FAST_LANE_SYSTEM_PROMPT } from "../llm/prompts/fast-lane-system.js";
 import { SttError, transcribeAudio } from "../llm/stt.js";
@@ -253,6 +257,7 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 			state.authenticated = true;
 			state.sessionId = generateId();
 			state.audioFormat = msg.audio_format ?? "mp3";
+			clearConversation();
 			const correlationId = msg.id;
 
 			sendJson({
@@ -443,6 +448,8 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 						});
 					}
 				}
+
+				appendConversation(userText, messages);
 			} else {
 				sendJson({
 					version: "1",

@@ -14,10 +14,13 @@ vi.mock("../config/logger.js", () => ({
 
 import {
 	type QuickMemoryData,
+	appendConversation,
+	clearConversation,
 	formatForPrompt,
 	get,
 	isEmpty,
 	update,
+	updateLastTopics,
 } from "./quick-memory.js";
 
 describe("quick-memory", () => {
@@ -36,6 +39,8 @@ describe("quick-memory", () => {
 			recentMentions: "Ajuste de gastos hormiga",
 		},
 		recentTopics: "presupuesto, compras, planificación vacaciones",
+		recentConversation: [],
+		lastTopics: "",
 		updatedAt: new Date(),
 	};
 
@@ -51,6 +56,8 @@ describe("quick-memory", () => {
 			topData: { tasks: [], objectives: [], lists: [], events: [] },
 			todayContext: { dueToday: [], inProgress: [], recentMentions: "" },
 			recentTopics: "",
+			recentConversation: [],
+			lastTopics: "",
 			updatedAt: new Date(),
 		});
 	});
@@ -79,6 +86,8 @@ describe("quick-memory", () => {
 			topData: { tasks: [], objectives: [], lists: [], events: [] },
 			todayContext: { dueToday: [], inProgress: [], recentMentions: "" },
 			recentTopics: "",
+			recentConversation: [],
+			lastTopics: "",
 			updatedAt: new Date(),
 		});
 		expect(isEmpty()).toBe(false); // still has whoAmI default
@@ -106,6 +115,8 @@ describe("quick-memory", () => {
 			topData: { tasks: [], objectives: [], lists: [], events: [] },
 			todayContext: { dueToday: [], inProgress: [], recentMentions: "" },
 			recentTopics: "",
+			recentConversation: [],
+			lastTopics: "",
 			updatedAt: new Date(),
 		});
 		expect(formatForPrompt()).toBe("");
@@ -126,6 +137,8 @@ describe("quick-memory", () => {
 				recentMentions: "B".repeat(500),
 			},
 			recentTopics: "C".repeat(500),
+			recentConversation: [],
+			lastTopics: "",
 			updatedAt: new Date(),
 		};
 		update(longData);
@@ -151,6 +164,8 @@ describe("quick-memory", () => {
 				recentMentions: "X".repeat(1000),
 			},
 			recentTopics: "Y".repeat(1000),
+			recentConversation: [],
+			lastTopics: "",
 			updatedAt: new Date(),
 		};
 		update(longData);
@@ -165,11 +180,110 @@ describe("quick-memory", () => {
 			topData: { tasks: [], objectives: [], lists: [], events: [] },
 			todayContext: { dueToday: [], inProgress: [], recentMentions: "" },
 			recentTopics: "",
+			recentConversation: [],
+			lastTopics: "",
 			updatedAt: new Date(),
 		});
 		const formatted = formatForPrompt();
 		expect(formatted).not.toContain("### Data clave");
 		expect(formatted).not.toContain("### Hoy");
 		expect(formatted).not.toContain("### Temas recientes");
+		expect(formatted).not.toContain("### Conversación reciente");
+	});
+
+	it("should append conversation and show in format", () => {
+		update({
+			whoAmI: "Usuario",
+			topData: { tasks: [], objectives: [], lists: [], events: [] },
+			todayContext: { dueToday: [], inProgress: [], recentMentions: "" },
+			recentTopics: "",
+			recentConversation: [],
+			lastTopics: "",
+			updatedAt: new Date(),
+		});
+
+		appendConversation("¿Qué tareas tengo?", [
+			"Tení 3 tareas pendientes.",
+			"La más urgente es revisar presupuesto.",
+		]);
+
+		const formatted = formatForPrompt();
+		expect(formatted).toContain("### Conversación reciente");
+		expect(formatted).toContain("[usuario] ¿Qué tareas tengo?");
+		expect(formatted).toContain("[asistente] Tení 3 tareas pendientes.");
+	});
+
+	it("should keep max 6 exchanges in conversation", () => {
+		update({
+			whoAmI: "Usuario",
+			topData: { tasks: [], objectives: [], lists: [], events: [] },
+			todayContext: { dueToday: [], inProgress: [], recentMentions: "" },
+			recentTopics: "",
+			recentConversation: [],
+			lastTopics: "",
+			updatedAt: new Date(),
+		});
+
+		for (let i = 0; i < 10; i++) {
+			appendConversation(`Mensaje ${i}`, [`Respuesta ${i}`]);
+		}
+
+		const current = get();
+		expect(current?.recentConversation.length).toBe(6);
+		expect(current?.recentConversation[0]).toContain("Mensaje 4");
+		expect(current?.recentConversation[5]).toContain("Mensaje 9");
+	});
+
+	it("should clear conversation", () => {
+		update({
+			whoAmI: "Usuario",
+			topData: { tasks: [], objectives: [], lists: [], events: [] },
+			todayContext: { dueToday: [], inProgress: [], recentMentions: "" },
+			recentTopics: "",
+			recentConversation: [],
+			lastTopics: "",
+			updatedAt: new Date(),
+		});
+
+		appendConversation("Hola", ["Hola!"]);
+		updateLastTopics("saludo");
+		clearConversation();
+
+		const current = get();
+		expect(current?.recentConversation.length).toBe(0);
+		expect(current?.lastTopics).toBe("");
+	});
+
+	it("should update last topics", () => {
+		update({
+			whoAmI: "Usuario",
+			topData: { tasks: [], objectives: [], lists: [], events: [] },
+			todayContext: { dueToday: [], inProgress: [], recentMentions: "" },
+			recentTopics: "",
+			recentConversation: [],
+			lastTopics: "",
+			updatedAt: new Date(),
+		});
+
+		updateLastTopics("presupuesto, compras");
+		const formatted = formatForPrompt();
+		expect(formatted).toContain("Últimos temas: presupuesto, compras");
+	});
+
+	it("should truncate conversation section first when over limit", () => {
+		update({
+			whoAmI: "Usuario",
+			topData: { tasks: [], objectives: [], lists: [], events: [] },
+			todayContext: { dueToday: [], inProgress: [], recentMentions: "" },
+			recentTopics: "",
+			recentConversation: [],
+			lastTopics: "",
+			updatedAt: new Date(),
+		});
+
+		appendConversation("A".repeat(400), ["B".repeat(400), "C".repeat(200)]);
+
+		const formatted = formatForPrompt();
+		expect(formatted.length).toBeLessThanOrEqual(2800);
 	});
 });

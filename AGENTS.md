@@ -73,14 +73,20 @@ Cliente (Flutter)
 
 ### Quick Memory (Cache en RAM)
 
-Cache en memoria que la vía rápida consulta para responder sin depender de la vía lenta. Máximo 700 tokens (~2800 chars). 4 secciones:
+Cache en memoria que la vía rápida consulta para responder sin depender de la vía lenta. Máximo 700 tokens (~2800 chars). 6 secciones:
 
 1. **Quién soy** — identidad del usuario inferida de memorias con preferencias
 2. **Data clave** — top tareas, objetivos, listas, eventos, proyectos, ideas
 3. **Hoy** — lo que vence hoy + en progreso
 4. **Temas recientes** — keywords de memorias recientes
+5. **Conversación reciente** — historial de los últimos 6 exchanges (usuario + asistente) de la sesión actual, mantenido en memoria por la vía rápida
+6. **Últimos temas** — últimas 2 temáticas de conversación, determinadas por la vía lenta vía acción `update_conversation_topics`
 
-Actualizada por la vía lenta (`update_quick_memory`) cuando el contexto cambia significativamente.
+Actualizada por:
+- **Vía rápida**: `appendConversation(userMsg, assistantMsgs)` — agrega cada exchange al buffer in-memory tras cada respuesta exitosa
+- **Vía lenta**: `update_quick_memory` (contexto general) y `update_conversation_topics` (temáticas de conversación)
+
+Prioridad de truncamiento (2800 chars): Conversación reciente > Temas recientes > Hoy > Data clave + Quién soy.
 
 ### Modelo de datos
 

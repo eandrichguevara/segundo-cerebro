@@ -16,6 +16,8 @@ export interface QuickMemoryData {
 		recentMentions: string;
 	};
 	recentTopics: string;
+	recentConversation: string[];
+	lastTopics: string;
 	updatedAt: Date;
 }
 
@@ -31,9 +33,34 @@ export function update(data: QuickMemoryData): void {
 			projects: data.topData.projects ?? [],
 			ideas: data.topData.ideas ?? [],
 		},
+		recentConversation: data.recentConversation ?? [],
+		lastTopics: data.lastTopics ?? "",
 		updatedAt: new Date(),
 	};
 	logger.info({ updatedAt: current.updatedAt }, "Quick memory updated");
+}
+
+export function appendConversation(
+	userMsg: string,
+	assistantMsgs: string[],
+): void {
+	if (!current) return;
+	const exchange = `[usuario] ${userMsg}\n[asistente] ${assistantMsgs.join("\n")}`;
+	current.recentConversation.push(exchange);
+	if (current.recentConversation.length > 6) {
+		current.recentConversation.shift();
+	}
+}
+
+export function clearConversation(): void {
+	if (!current) return;
+	current.recentConversation = [];
+	current.lastTopics = "";
+}
+
+export function updateLastTopics(topics: string): void {
+	if (!current) return;
+	current.lastTopics = topics;
 }
 
 export function get(): QuickMemoryData | null {
@@ -76,12 +103,15 @@ export function formatForPrompt(): string {
 		todayItems.push(`Reciente: ${current.todayContext.recentMentions}`);
 
 	const hasRecentTopics = Boolean(current.recentTopics);
+	const hasConversation =
+		current.recentConversation.length > 0 || Boolean(current.lastTopics);
 
 	const hasContent =
 		hasWhoAmI ||
 		topItems.length > 0 ||
 		todayItems.length > 0 ||
-		hasRecentTopics;
+		hasRecentTopics ||
+		hasConversation;
 	if (!hasContent) return "";
 
 	lines.push("## Contexto rápido");
@@ -96,6 +126,15 @@ export function formatForPrompt(): string {
 
 	if (hasRecentTopics) {
 		lines.push(`### Temas recientes\n${current.recentTopics}`);
+	}
+
+	if (hasConversation) {
+		const convParts: string[] = [];
+		if (current.lastTopics) {
+			convParts.push(`Últimos temas: ${current.lastTopics}`);
+		}
+		convParts.push(...current.recentConversation);
+		lines.push(`### Conversación reciente\n${convParts.join("\n")}`);
 	}
 
 	let result = lines.join("\n\n");

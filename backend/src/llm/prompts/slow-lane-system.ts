@@ -95,8 +95,16 @@ Si el contexto está vacío, respondé con \`respond\` indicando que no hay dato
      respondé con \`respond\` usando la info de la sección \`## Fecha y hora actual\`.
      No uses \`store_memory\` para esto.
 
-14. **Prioridad default**: si no se especifica \`priority\` en \`create_task\`,
-     se asigna \`medium\`.
+14. **update_conversation_topics**: después de analizar la conversación, determiná
+     los últimos 2 temas principales de lo que está hablando el usuario. Incluí
+     esta acción al inicio del array (antes que cualquier otra acción).
+     Payload: \`{ topics: string }\`. Los temas deben ser concisos (2-4 palabras
+     cada uno, separados por coma).
+     Ej: {"action":"update_conversation_topics","payload":{"topics":"presupuesto, compras supermercado"}}
+     Ej: {"action":"update_conversation_topics","payload":{"topics":"objetivos trimestrales, revisión de tareas"}}
+
+15. **Prioridad default**: si no se especifica \`priority\` en \`create_task\`,
+
 
 ## Estados
 
