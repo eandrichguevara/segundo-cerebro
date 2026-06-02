@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'config/app_config.dart';
 import 'screens/home_screen.dart';
 import 'services/audio_service.dart';
+import 'services/notification_service.dart';
 import 'services/websocket_service.dart';
 
 Future<void> main() async {
@@ -15,9 +16,14 @@ Future<void> main() async {
     developer.log('WARNING: AUTH_TOKEN no configurado', name: 'main');
   }
 
+  final notificationService = NotificationService();
+  await notificationService.initialize();
+
   final wsService = WebSocketService();
   final audioService = AudioService(wsService);
   await audioService.initialize();
+
+  notificationService.connectWs(wsService);
 
   runApp(
     SegundoCerebroApp(

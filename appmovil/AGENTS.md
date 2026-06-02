@@ -69,7 +69,7 @@ La app recibe mensajes WS `display` con entidades estructuradas y las renderiza 
 - [x] Chat history persistente con `shared_preferences` (máx 200 items)
 - [x] Timeout de seguridad (30s) en estado `processing`
 - [x] Smoke tests de mensajes WS (`test/smoke_test.dart`)
-- [ ] Integración de Firebase Cloud Messaging (FCM) — registro de token implementado pero no conectado al flujo
+- [x] Integración de Firebase Cloud Messaging (FCM) — registro de token implementado y conectado al flujo, notificaciones ongoing de eventos con entidades enlazadas
 - [ ] Soporte de `audio_format: pcm` en lado cliente
 - [ ] Tests de widgets e integración
 

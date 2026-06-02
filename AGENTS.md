@@ -32,6 +32,7 @@ Interfaz **voice-first**, sin dashboards. La app móvil es solo un cliente de vo
 | Mobile            | Flutter                                                                                                     |
 | Dashboard web     | Next.js + shadcn/ui (solo lectura)                                                                          |
 | Logger            | pino (structured JSON)                                                                                      |
+| Timezone          | `TIMEZONE` env var, default `America/Argentina/Buenos_Aires` — usado para fechas en prompts LLM             |
 
 No cambiar estas decisiones sin actualizar este archivo.
 
@@ -62,6 +63,8 @@ Cliente (Flutter)
   │                                              │
   │ ◄── action_result / display / text ──── respuestas
 ```
+
+**Event Alert Worker**: worker independiente (no job queue) que cada 60s consulta eventos activos (`start_time <= now AND (end_time IS NULL OR end_time > now)`). Para cada evento activo, resuelve entidades enlazadas (listas, tareas, objetivos) y envía FCM push con `type: "event_notification"`. Cuando el evento termina, envía `type: "event_notification_cancel"` para remover la notificación. Cache en memoria para evitar reenvíos (re-envía cada 5 min para refrescar). Las notificaciones son **ongoing** (no descartables) en Android.
 
 **Fallback**: si la vía rápida falla (timeout/error), envía "Un momento, estoy procesando..." + `audio_end`. La vía lenta responde cuando termine.
 

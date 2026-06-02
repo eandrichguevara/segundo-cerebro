@@ -1,6 +1,7 @@
 import { ConversationRole } from "@prisma/client";
 import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
+import { formatCurrentTime } from "../config/current-time.js";
 import { env } from "../config/env.js";
 import { logger } from "../config/logger.js";
 import { addTurn } from "../db/repositories/conversation-repository.js";
@@ -350,7 +351,7 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 			}
 
 			const quickContext = formatForPrompt();
-			const currentTimeStr = `\n\n## Fecha y hora actual\n${new Date().toLocaleString("es-AR")}`;
+			const currentTimeStr = `\n\n## Fecha y hora actual\n${formatCurrentTime()}`;
 			const fastLanePrompt = quickContext
 				? `${FAST_LANE_SYSTEM_PROMPT}\n\n${quickContext}${currentTimeStr}`
 				: `${FAST_LANE_SYSTEM_PROMPT}\n\n## Contexto rápido\nNo hay contexto disponible en este momento. Respondé de forma breve y neutral, sin especular sobre si existen o no datos del usuario. Si el usuario pregunta por su información, indicá que lo estás verificando.${currentTimeStr}`;

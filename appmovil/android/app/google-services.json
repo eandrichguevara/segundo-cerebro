@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "563231894041",
+    "project_id": "segundo-cerebro-7c24a",
+    "storage_bucket": "segundo-cerebro-7c24a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:563231894041:android:da9d23dcf8200baefb9888",
+        "android_client_info": {
+          "package_name": "com.miloapps.segundocerebro"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAlLZPB2EVOV_Hf260kzqSE_d5LqeBsR34"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

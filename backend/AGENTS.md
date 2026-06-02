@@ -13,6 +13,7 @@ Backend del asistente virtual de voz "Segundo Cerebro". Procesa audio en tiempo 
 - **Testing:** Vitest
 - **Linting/Typecheck:** Biome + `tsc --noEmit`
 - **Logger:** pino (structured JSON)
+- **Timezone:** `TIMEZONE` env var, default `America/Argentina/Buenos_Aires` — usado para fechas en prompts LLM
 - **IA:** OpenAI (Whisper, GPT-4.1-mini, GPT-5-mini, TTS, text-embedding-3-small)
 - **Notificaciones:** Firebase Cloud Messaging (FCM)
 
@@ -102,7 +103,11 @@ Tabla `jobs` para la cola de vía lenta:
 
 **Recovery**: jobs en `processing` con `locked_at` > `JOB_ORPHAN_TIMEOUT_MS` (default: 10 min) se consideran huérfanos. Worker de cleanup corre cada 5 min y los revierte a `pending`.
 
-**Worker Fase 1**: corre en el mismo proceso Fastify como `setInterval`. Escalar a proceso separado requiere actualizar este archivo.
+**Workers**:
+- `slow-lane-processor.ts`: consume jobs de la tabla `jobs` con `SELECT ... FOR UPDATE SKIP LOCKED`
+- `event-alert-worker.ts`: worker independiente (no job queue) que cada 60s consulta eventos activos y envía notificaciones FCM push con entidades enlazadas. Cache en memoria para evitar reenvíos.
+
+Ambos corren en el mismo proceso Fastify como `setInterval`. Escalar a proceso separado requiere actualizar este archivo.
 
 ### Quick Memory (Implementación)
 

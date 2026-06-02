@@ -1,4 +1,4 @@
-package com.segundocerebro.segundo_cerebro
+package com.miloapps.segundocerebro
 
 import io.flutter.embedding.android.FlutterActivity
 

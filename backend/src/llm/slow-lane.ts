@@ -1,3 +1,4 @@
+import { formatCurrentTime } from "../config/current-time.js";
 import { env } from "../config/env.js";
 import { logger } from "../config/logger.js";
 import { type Result, err, ok } from "../types/result.js";
@@ -45,7 +46,7 @@ export async function extractActions(
 
 		messages.push({
 			role: "system",
-			content: `## Fecha y hora actual\n${new Date().toLocaleString("es-AR")}`,
+			content: `## Fecha y hora actual\n${formatCurrentTime()}`,
 		});
 
 		if (context.conversationTurns) {

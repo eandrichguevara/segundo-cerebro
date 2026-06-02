@@ -157,3 +157,14 @@ export async function getEventExceptions(parentId: string) {
 	});
 	return events as unknown as EventRecord[];
 }
+
+export async function getActiveEventsInProgress(now: Date) {
+	const events = await prisma.event.findMany({
+		where: {
+			status: "active" as never,
+			startTime: { lte: now },
+		},
+		orderBy: { startTime: "asc" },
+	});
+	return events as unknown as EventRecord[];
+}
