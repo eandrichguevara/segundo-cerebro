@@ -7,6 +7,7 @@ Asistente virtual de voz en tiempo real, personal y mono-usuario, que actúa com
 Interfaz **voice-first**, sin dashboards. La app móvil es solo un cliente de voz; toda la lógica vive en el backend.
 
 **Invariantes permanentes:**
+
 - Doble vía de procesamiento (rápida sin lógica, lenta con lógica de negocio)
 - Mono-usuario, no se contempla multi-usuario
 - Token estático para auth (MVP)
@@ -23,7 +24,7 @@ Interfaz **voice-first**, sin dashboards. La app móvil es solo un cliente de vo
 | ORM               | Prisma                                                                                                      |
 | Package manager   | pnpm                                                                                                        |
 | STT               | OpenAI Whisper (`whisper-1`)                                                                                |
-| LLM vía rápida    | OpenAI (default `gpt-4.1-mini`, configurable via `OPENAI_FAST_MODEL`)                                         |
+| LLM vía rápida    | OpenAI (default `gpt-4.1-mini`, configurable via `OPENAI_FAST_MODEL`)                                       |
 | LLM vía lenta     | OpenAI (default `gpt-5-mini`, configurable via `OPENAI_SLOW_MODEL`) — lógica, validación, JSON estructurado |
 | TTS               | Cartesia Sonic (principal) + OpenAI `tts-1-hd` (fallback)                                                   |
 | Embeddings        | OpenAI `text-embedding-3-small`                                                                             |
@@ -32,7 +33,7 @@ Interfaz **voice-first**, sin dashboards. La app móvil es solo un cliente de vo
 | Mobile            | Flutter                                                                                                     |
 | Dashboard web     | Next.js + shadcn/ui (solo lectura)                                                                          |
 | Logger            | pino (structured JSON)                                                                                      |
-| Timezone          | `TIMEZONE` env var, default `America/Argentina/Buenos_Aires` — usado para fechas en prompts LLM             |
+| Timezone          | `TIMEZONE` env var, default `America/Santiago` — usado para fechas en prompts LLM                           |
 
 No cambiar estas decisiones sin actualizar este archivo.
 
@@ -83,25 +84,26 @@ Actualizada por la vía lenta (`update_quick_memory`) cuando el contexto cambia 
 
 ### Modelo de datos
 
-| Entidad | Propósito | Estados |
-|---|---|---|
-| `tasks` | Unidad atómica de acción | pending → in_progress → completed / postponed / cancelled |
-| `objectives` | Meta a corto/mediano/largo plazo | active → paused / completed / cancelled |
-| `lists` | Colección flexible de items | active → completed / cancelled |
-| `events` | Evento único o recurrente (con excepciones) | active → completed / cancelled |
-| `projects` | Proyectos con estado | active → paused / completed / cancelled |
-| `ideas` | Ideas con ciclo de evaluación | new → evaluating → approved / discarded → converted |
-| `memories` | Interacción significativa + embedding vectorial | Sin soft delete |
-| `conversation_turns` | Registro de cada intercambio por sesión | Sin soft delete |
-| `entity_links` | Enlace genérico entre cualquier par de entidades | — |
-| `jobs` | Cola de procesamiento de vía lenta | pending → processing → completed / failed |
-| `devices` | Dispositivos registrados para notificaciones FCM | — |
+| Entidad              | Propósito                                        | Estados                                                   |
+| -------------------- | ------------------------------------------------ | --------------------------------------------------------- |
+| `tasks`              | Unidad atómica de acción                         | pending → in_progress → completed / postponed / cancelled |
+| `objectives`         | Meta a corto/mediano/largo plazo                 | active → paused / completed / cancelled                   |
+| `lists`              | Colección flexible de items                      | active → completed / cancelled                            |
+| `events`             | Evento único o recurrente (con excepciones)      | active → completed / cancelled                            |
+| `projects`           | Proyectos con estado                             | active → paused / completed / cancelled                   |
+| `ideas`              | Ideas con ciclo de evaluación                    | new → evaluating → approved / discarded → converted       |
+| `memories`           | Interacción significativa + embedding vectorial  | Sin soft delete                                           |
+| `conversation_turns` | Registro de cada intercambio por sesión          | Sin soft delete                                           |
+| `entity_links`       | Enlace genérico entre cualquier par de entidades | —                                                         |
+| `jobs`               | Cola de procesamiento de vía lenta               | pending → processing → completed / failed                 |
+| `devices`            | Dispositivos registrados para notificaciones FCM | —                                                         |
 
 **Relaciones**: Tarea → Objetivo (FK). Evento recurrente → excepciones (self-reference). Cualquier entidad se vincula con cualquier otra via `entity_links`. Soft delete en tasks, objectives, events, lists, projects (estado `cancelled` + `cancelled_at`).
 
 ### Máquinas de estado
 
 **Tasks**:
+
 ```
 pending ──► in_progress ──► completed
     │            │               │
@@ -111,15 +113,18 @@ pending ──► in_progress ──► completed
 ```
 
 **Objectives**:
+
 ```
 active ──► paused ──► active
   │          └──► cancelled
   ├──► completed (irreversible)
   └──► cancelled
-  ```
+```
+
 Al cancelar un objective, todas sus tareas pendientes/in_progress/postponed pasan a `cancelled` (cascada).
 
 **Lists y Events**:
+
 ```
 active ──► completed (irreversible)
   └──► cancelled (irreversible)
@@ -163,18 +168,19 @@ No mover carpetas de alto nivel sin instrucción explícita.
 
 ## 🚦 Estado Actual e Hitos de Automatización
 
-| Fase | Nombre | Estado |
-|---|---|---|
-| 1 | **MVP** | ✅ Completada — WebSocket, STT, doble vía, CRUD tasks/objectives/lists/events/projects/ideas/links, Quick Memory, display estructurado, cola PostgreSQL, FCM. |
-| 2 | **Memoria** | 🟡 Casi completa — RAG con pgvector y notificaciones proactivas funcionando. Pendiente: consolidación periódica de memorias. |
-| 3 | **Personal avanzado** | ⬜ Pendiente — inferencia de personalidad, métricas de uso, ajuste dinámico de prompts. |
-| 4 | **Producción** | ⬜ Pendiente — Docker/OCI, CI/CD, monitoreo, job queue escalable (Graphile Worker/BullMQ). |
+| Fase | Nombre                | Estado                                                                                                                                                        |
+| ---- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | **MVP**               | ✅ Completada — WebSocket, STT, doble vía, CRUD tasks/objectives/lists/events/projects/ideas/links, Quick Memory, display estructurado, cola PostgreSQL, FCM. |
+| 2    | **Memoria**           | 🟡 Casi completa — RAG con pgvector y notificaciones proactivas funcionando. Pendiente: consolidación periódica de memorias.                                  |
+| 3    | **Personal avanzado** | ⬜ Pendiente — inferencia de personalidad, métricas de uso, ajuste dinámico de prompts.                                                                       |
+| 4    | **Producción**        | ⬜ Pendiente — Docker/OCI, CI/CD, monitoreo, job queue escalable (Graphile Worker/BullMQ).                                                                    |
 
 Detalle de implementación por capa en `backend/AGENTS.md`, `appmovil/AGENTS.md`, `web/AGENTS.md`.
 
 ## 📌 Reglas Generales para el Agente (Modo Build)
 
 ### Cross-project
+
 1. **pnpm** es el package manager (no npm/yarn). En web también.
 2. **TypeScript strict**: no `any`, `as unknown as T`, non-null assertion `!`, `@ts-ignore`. Preferir discriminated unions y narrowing explícito.
 3. **Naming**: `camelCase` en TS, `snake_case` en BD, `kebab-case.ts` en archivos. Modelos Prisma en `PascalCase` (inglés). Imports: externos → `@/` → relativos, separados por línea en blanco.
@@ -183,17 +189,20 @@ Detalle de implementación por capa en `backend/AGENTS.md`, `appmovil/AGENTS.md`
 6. **Commits**: Conventional Commits. No forzar push ni commitear sin revisar diff previamente.
 
 ### Arquitectura
+
 7. **Doble vía**: respetar separación estricta. Vía rápida nunca escribe en BD (solo conversation_turns y encolar jobs). Vía lenta aplica toda la lógica de negocio.
 8. **Result pattern** en `domain/`: `Result<T, E>` con helpers `ok(value)` / `err(error)`. Errores como enums por dominio.
 9. **Prompts versionados** en `backend/src/llm/prompts/`, nunca en BD ni archivos externos.
 
 ### Mantenimiento
+
 10. Si un cambio afecta doble vía, modelo de datos, integraciones IA, protocolo WS o personalidad del clon: actualizar este AGENTS.md y los relevantes por capa.
 11. Ejecutar `pnpm lint` y `pnpm test` antes de dar un cambio por terminado en backend.
 12. Para Flutter: ejecutar `flutter test` antes de terminar.
 13. No introducir dependencias externas sin preguntar.
 
 ### Safety
+
 14. No leer ni mostrar `.env`, claves o configuraciones sensibles.
 15. No desactivar validaciones que impiden escritura directa en BD desde vía rápida.
 16. No modificar infraestructura de despliegue (docker, nginx, OCI) sin instrucción explícita.
