@@ -9,3 +9,20 @@ export function formatCurrentTime(): string {
 	});
 	return formatter.format(now);
 }
+
+export function formatTimeInTimezone(date: Date): string {
+	return date.toLocaleTimeString("es-AR", {
+		timeZone: env.TIMEZONE,
+		hour: "2-digit",
+		minute: "2-digit",
+	});
+}
+
+export function formatDateInTimezone(date: Date): string {
+	return date.toLocaleDateString("es-AR", {
+		timeZone: env.TIMEZONE,
+		weekday: "short",
+		day: "numeric",
+		month: "short",
+	});
+}

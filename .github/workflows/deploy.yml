@@ -141,6 +141,7 @@ jobs:
             OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
             DB_PASSWORD=${{ secrets.DB_PASSWORD }}
             LOG_LEVEL=${{ secrets.LOG_LEVEL }}
+            TIMEZONE=${{ secrets.TIMEZONE }}
             DOCKER_USER=${{ secrets.DOCKER_USER }}
             IMAGE_TAG=latest
             EOF

@@ -1,4 +1,8 @@
 import type { Prisma } from "@prisma/client";
+import {
+	formatDateInTimezone,
+	formatTimeInTimezone,
+} from "../config/current-time.js";
 import { logger } from "../config/logger.js";
 import * as deviceRepository from "../db/repositories/device-repository.js";
 import * as entityLinkRepository from "../db/repositories/entity-link-repository.js";
@@ -33,21 +37,6 @@ type LinkedEntityData = {
 	priority?: string;
 	deadline?: string;
 };
-
-function formatTime(date: Date): string {
-	return date.toLocaleTimeString("es-AR", {
-		hour: "2-digit",
-		minute: "2-digit",
-	});
-}
-
-function formatDate(date: Date): string {
-	return date.toLocaleDateString("es-AR", {
-		weekday: "short",
-		day: "numeric",
-		month: "short",
-	});
-}
 
 function isRecurringInstanceActive(event: EventRecord, now: Date): boolean {
 	if (!event.recurrenceRule || typeof event.recurrenceRule !== "object") {
@@ -186,8 +175,8 @@ async function sendEventNotification(
 ): Promise<void> {
 	const linkedEntities = await resolveLinkedEntities(links);
 
-	const timeStr = `${formatTime(event.startTime)}${event.endTime ? ` - ${formatTime(event.endTime)}` : ""}`;
-	const dateStr = formatDate(event.startTime);
+	const timeStr = `${formatTimeInTimezone(event.startTime)}${event.endTime ? ` - ${formatTimeInTimezone(event.endTime)}` : ""}`;
+	const dateStr = formatDateInTimezone(event.startTime);
 
 	const eventData = {
 		id: event.id,
