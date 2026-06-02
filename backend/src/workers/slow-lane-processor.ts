@@ -1,5 +1,6 @@
 import { ConversationRole } from "@prisma/client";
 import { sendToSession } from "../api/ws.js";
+import { getStartOfDayInTimezone } from "../config/current-time.js";
 import { env } from "../config/env.js";
 import { logger } from "../config/logger.js";
 import {
@@ -70,7 +71,9 @@ async function formatActiveObjectives(): Promise<string> {
 			.map((o) => {
 				const parts = [o.status];
 				if (o.deadline)
-					parts.push(`deadline: ${o.deadline.toLocaleDateString("es-AR")}`);
+					parts.push(
+						`deadline: ${o.deadline.toLocaleDateString("es-AR", { timeZone: env.TIMEZONE })}`,
+					);
 				parts.push(`id: ${o.id}`);
 				return `- 🎯 ${o.title} (${parts.join(", ")})`;
 			})
@@ -91,7 +94,9 @@ async function formatActiveTasks(): Promise<string> {
 					t.priority === "high" ? "🔴" : t.priority === "low" ? "🟢" : "🟡";
 				const parts = [t.status, `prioridad: ${t.priority ?? "medium"}`];
 				if (t.dueDate)
-					parts.push(`vence: ${t.dueDate.toLocaleDateString("es-AR")}`);
+					parts.push(
+						`vence: ${t.dueDate.toLocaleDateString("es-AR", { timeZone: env.TIMEZONE })}`,
+					);
 				parts.push(`id: ${t.id}`);
 				if (t.objectiveId) parts.push(`objective: ${t.objectiveId}`);
 				return `- ${priorityEmoji} ${t.title} (${parts.join(", ")})`;
@@ -105,9 +110,8 @@ async function formatActiveTasks(): Promise<string> {
 
 async function formatUpcomingEvents(): Promise<string> {
 	try {
-		const now = new Date();
-		const weekEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-		const events = await eventRepository.getEventsByDateRange(now, weekEnd);
+		const { start, end } = getDateRangeForEvents();
+		const events = await eventRepository.getEventsByDateRange(start, end);
 		if (events.length === 0) return "";
 
 		const recurring = await eventRepository.getRecurringEvents();
@@ -120,7 +124,7 @@ async function formatUpcomingEvents(): Promise<string> {
 			events
 				.map(
 					(e) =>
-						`- ${e.title} (${e.startTime.toLocaleDateString("es-AR")} ${e.startTime.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}${e.endTime ? ` - ${e.endTime.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}` : ""}, id: ${e.id})`,
+						`- ${e.title} (${e.startTime.toLocaleDateString("es-AR", { timeZone: env.TIMEZONE })} ${e.startTime.toLocaleTimeString("es-AR", { timeZone: env.TIMEZONE, hour: "2-digit", minute: "2-digit" })}${e.endTime ? ` - ${e.endTime.toLocaleTimeString("es-AR", { timeZone: env.TIMEZONE, hour: "2-digit", minute: "2-digit" })}` : ""}, id: ${e.id})`,
 				)
 				.join("\n") + recurringText
 		);
@@ -128,6 +132,13 @@ async function formatUpcomingEvents(): Promise<string> {
 		logger.error({ error }, "Error fetching upcoming events");
 		return "";
 	}
+}
+
+function getDateRangeForEvents(): { start: Date; end: Date } {
+	const now = new Date();
+	const start = getStartOfDayInTimezone(now, env.TIMEZONE);
+	const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+	return { start, end };
 }
 
 async function formatActiveLists(): Promise<string> {
@@ -160,7 +171,9 @@ async function formatActiveProjects(): Promise<string> {
 				const parts = [p.status];
 				if (p.category) parts.push(`categoría: ${p.category}`);
 				if (p.deadline)
-					parts.push(`deadline: ${p.deadline.toLocaleDateString("es-AR")}`);
+					parts.push(
+						`deadline: ${p.deadline.toLocaleDateString("es-AR", { timeZone: env.TIMEZONE })}`,
+					);
 				parts.push(`id: ${p.id}`);
 				return `- 📁 ${p.title} (${parts.join(", ")})`;
 			})
@@ -233,9 +246,8 @@ async function buildDisplayForTypes(
 				});
 			}
 		} else if (type === "event") {
-			const now = new Date();
-			const weekEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-			const events = await eventRepository.getEventsByDateRange(now, weekEnd);
+			const { start, end } = getDateRangeForEvents();
+			const events = await eventRepository.getEventsByDateRange(start, end);
 			for (const e of events) {
 				display.push({
 					type: "event",

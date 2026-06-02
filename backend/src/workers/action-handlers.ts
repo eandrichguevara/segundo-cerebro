@@ -1,3 +1,5 @@
+import { getStartOfDayInTimezone } from "../config/current-time.js";
+import { env } from "../config/env.js";
 import { logger } from "../config/logger.js";
 import * as entityLinkRepository from "../db/repositories/entity-link-repository.js";
 import * as eventRepository from "../db/repositories/event-repository.js";
@@ -1253,10 +1255,14 @@ export async function handleQueryEvents(
 	correlationId: string,
 ): Promise<ActionResult> {
 	const startDate =
-		(payload.start_date as string | undefined) ?? new Date().toISOString();
+		(payload.start_date as string | undefined) ??
+		getStartOfDayInTimezone(new Date(), env.TIMEZONE).toISOString();
 	const endDate =
 		(payload.end_date as string | undefined) ??
-		new Date(new Date().getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+		new Date(
+			getStartOfDayInTimezone(new Date(), env.TIMEZONE).getTime() +
+				7 * 24 * 60 * 60 * 1000,
+		).toISOString();
 
 	try {
 		const events = await eventRepository.getEventsByDateRange(
@@ -2065,14 +2071,14 @@ function buildRecentTopics(
 export async function initializeQuickMemory(): Promise<void> {
 	try {
 		const now = new Date();
-		const weekEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+		const { start, end } = getQuickMemoryEventRange();
 
 		const [tasks, objectives, lists, events, memories, projects, ideas] =
 			await Promise.all([
 				taskRepository.getActiveTasks(),
 				objectiveRepository.getActiveObjectives(),
 				listRepository.getAllActive(),
-				eventRepository.getEventsByDateRange(now, weekEnd),
+				eventRepository.getEventsByDateRange(start, end),
 				memoryRepository.getRecentMemories(5),
 				projectRepository.getActiveProjects(),
 				ideaRepository.getActiveIdeas(),
@@ -2109,6 +2115,7 @@ export async function initializeQuickMemory(): Promise<void> {
 			.slice(0, 5)
 			.map((e) => {
 				const date = e.startTime.toLocaleDateString("es-AR", {
+					timeZone: env.TIMEZONE,
 					weekday: "short",
 					day: "numeric",
 					month: "short",
@@ -2123,10 +2130,11 @@ export async function initializeQuickMemory(): Promise<void> {
 			.slice(0, 3)
 			.map((i) => `${i.title} (${i.status})`);
 
-		const todayStr = now.toDateString();
+		const todayStart = getStartOfDayInTimezone(now, env.TIMEZONE);
+		const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 		const dueToday = typedTasks.filter((t) => {
 			if (!t.dueDate) return false;
-			return t.dueDate.toDateString() === todayStr;
+			return t.dueDate >= todayStart && t.dueDate < todayEnd;
 		});
 
 		const inProgress = typedTasks.filter((t) => t.status === "in_progress");
@@ -2200,6 +2208,13 @@ export async function handleUpdateQuickMemory(
 			message: "Error al actualizar la memoria rápida",
 		});
 	}
+}
+
+function getQuickMemoryEventRange(): { start: Date; end: Date } {
+	const now = new Date();
+	const start = getStartOfDayInTimezone(now, env.TIMEZONE);
+	const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+	return { start, end };
 }
 
 export type ActionHandler = (
