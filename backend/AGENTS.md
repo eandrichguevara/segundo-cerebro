@@ -13,7 +13,7 @@ Backend del asistente virtual de voz "Segundo Cerebro". Procesa audio en tiempo 
 - **Testing:** Vitest
 - **Linting/Typecheck:** Biome + `tsc --noEmit`
 - **Logger:** pino (structured JSON)
-- **Timezone:** `TIMEZONE` env var, default `America/Argentina/Buenos_Aires` — usado para fechas en prompts LLM
+- **Timezone:** `TIMEZONE` env var, default `America/Santiago` — usado para fechas en prompts LLM
 - **IA:** OpenAI (Whisper, GPT-4.1-mini, GPT-5-mini, TTS, text-embedding-3-small)
 - **Notificaciones:** Firebase Cloud Messaging (FCM)
 
@@ -37,6 +37,7 @@ src/
 ### Doble vía (flujo detallado)
 
 **Vía rápida**:
+
 1. Audio del usuario capturado como `audio_chunk` (PCM 16-bit, 16kHz, mono) → servidor vía WebSocket.
 2. Servidor acumula chunks, al recibir `audio_end` envía el buffer a Whisper.
 3. Texto transcrito → Quick Memory + fast-lane LLM (modelo configurable via `OPENAI_FAST_MODEL`) → respuesta textual.
@@ -45,6 +46,7 @@ src/
 6. Si falla (timeout/error): envía "Un momento, estoy procesando..." + `audio_end`.
 
 **Vía lenta**:
+
 1. Texto transcrito encolado en tabla `jobs` (PostgreSQL).
 2. Worker consume con `SELECT ... FOR UPDATE SKIP LOCKED`.
 3. Envía contexto al slow-lane LLM (modelo configurable via `OPENAI_SLOW_MODEL`): últimos N conversation_turns + top-K memorias + objetivos activos + tareas activas + listas activas + eventos próximos (7 días).
@@ -83,27 +85,28 @@ Formato básico de mensajes. Todos incluyen `"version": "1"`. Los mensajes clien
 
 Tabla `jobs` para la cola de vía lenta:
 
-| Campo | Tipo | Descripción |
-|---|---|---|
-| `id` | UUID PK | Identificador único |
-| `correlation_id` | UUID NOT NULL | Trazabilidad end-to-end |
-| `session_id` | UUID NOT NULL | Sesión WebSocket origen |
-| `type` | TEXT NOT NULL | `process_message` |
-| `source` | TEXT NOT NULL | `websocket`, `scheduled`, `system` |
-| `payload` | JSONB NOT NULL | Datos del mensaje (`transcribed_text`, `audio_format`, `received_at`) |
-| `status` | TEXT NOT NULL | `pending`, `processing`, `completed`, `failed` |
-| `attempts` | INTEGER DEFAULT 0 | Número de intentos |
-| `max_attempts` | INTEGER DEFAULT 3 | Reintentos máximos |
-| `run_at` | TIMESTAMPTZ DEFAULT NOW() | Disponible para procesar desde |
-| `locked_at` | TIMESTAMPTZ nullable | Cuándo el worker tomó el job |
-| `locked_by` | TEXT nullable | Worker que procesa |
-| `result` | JSONB nullable | Resultado del procesamiento |
+| Campo            | Tipo                      | Descripción                                                           |
+| ---------------- | ------------------------- | --------------------------------------------------------------------- |
+| `id`             | UUID PK                   | Identificador único                                                   |
+| `correlation_id` | UUID NOT NULL             | Trazabilidad end-to-end                                               |
+| `session_id`     | UUID NOT NULL             | Sesión WebSocket origen                                               |
+| `type`           | TEXT NOT NULL             | `process_message`                                                     |
+| `source`         | TEXT NOT NULL             | `websocket`, `scheduled`, `system`                                    |
+| `payload`        | JSONB NOT NULL            | Datos del mensaje (`transcribed_text`, `audio_format`, `received_at`) |
+| `status`         | TEXT NOT NULL             | `pending`, `processing`, `completed`, `failed`                        |
+| `attempts`       | INTEGER DEFAULT 0         | Número de intentos                                                    |
+| `max_attempts`   | INTEGER DEFAULT 3         | Reintentos máximos                                                    |
+| `run_at`         | TIMESTAMPTZ DEFAULT NOW() | Disponible para procesar desde                                        |
+| `locked_at`      | TIMESTAMPTZ nullable      | Cuándo el worker tomó el job                                          |
+| `locked_by`      | TEXT nullable             | Worker que procesa                                                    |
+| `result`         | JSONB nullable            | Resultado del procesamiento                                           |
 
 **Mecanismo**: workers consumen con `SELECT ... FOR UPDATE SKIP LOCKED WHERE status = 'pending' AND run_at <= NOW()`.
 
 **Recovery**: jobs en `processing` con `locked_at` > `JOB_ORPHAN_TIMEOUT_MS` (default: 10 min) se consideran huérfanos. Worker de cleanup corre cada 5 min y los revierte a `pending`.
 
 **Workers**:
+
 - `slow-lane-processor.ts`: consume jobs de la tabla `jobs` con `SELECT ... FOR UPDATE SKIP LOCKED`
 - `event-alert-worker.ts`: worker independiente (no job queue) que cada 60s consulta eventos activos y envía notificaciones FCM push con entidades enlazadas. Cache en memoria para evitar reenvíos.
 
@@ -115,22 +118,22 @@ Singleton en RAM (`backend/src/domain/quick-memory.ts`).
 
 ```typescript
 interface QuickMemoryData {
-  whoAmI: string;
-  topData: {
-    tasks: string[];
-    objectives: string[];
-    lists: string[];
-    events: string[];
-    projects: string[];
-    ideas: string[];
-  };
-  todayContext: {
-    dueToday: string[];
-    inProgress: string[];
-    recentMentions: string;
-  };
-  recentTopics: string;
-  updatedAt: Date;
+	whoAmI: string;
+	topData: {
+		tasks: string[];
+		objectives: string[];
+		lists: string[];
+		events: string[];
+		projects: string[];
+		ideas: string[];
+	};
+	todayContext: {
+		dueToday: string[];
+		inProgress: string[];
+		recentMentions: string;
+	};
+	recentTopics: string;
+	updatedAt: Date;
 }
 ```
 
@@ -153,6 +156,7 @@ La vía lenta produce un array de acciones JSON que el worker ejecuta secuencial
 ```
 
 **Reglas**:
+
 1. La vía lenta produce **una o más acciones** por mensaje en `{ "actions": [...] }`.
 2. Acciones sin `depends_on` se ejecutan siempre. Si `depends_on` referencia una acción que falló, recibe error `PREVIOUS_ACTION_FAILED`.
 3. Si el mensaje es ambiguo, elegir la acción más probable y notificar.
@@ -161,152 +165,165 @@ La vía lenta produce un array de acciones JSON que el worker ejecuta secuencial
 
 #### `create_task`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `title` | string | Sí | Título breve |
-| `description` | string | No | Descripción detallada |
-| `due_date` | string | No | Fecha límite ISO 8601 |
-| `objective_id` | string | No | UUID del objetivo |
-| `priority` | string | No | `low`, `medium`, `high` (default: `medium`) |
-| `context` | object | No | Metadata estructurada (ubicación, hora, etc.) |
+| Campo          | Tipo   | Requerido | Descripción                                   |
+| -------------- | ------ | --------- | --------------------------------------------- |
+| `title`        | string | Sí        | Título breve                                  |
+| `description`  | string | No        | Descripción detallada                         |
+| `due_date`     | string | No        | Fecha límite ISO 8601                         |
+| `objective_id` | string | No        | UUID del objetivo                             |
+| `priority`     | string | No        | `low`, `medium`, `high` (default: `medium`)   |
+| `context`      | object | No        | Metadata estructurada (ubicación, hora, etc.) |
 
 ```json
-{ "action": "create_task", "payload": { "title": "Revisar presupuesto mensual", "priority": "high", "due_date": "2026-05-25T23:59:59Z" } }
+{
+	"action": "create_task",
+	"payload": {
+		"title": "Revisar presupuesto mensual",
+		"priority": "high",
+		"due_date": "2026-05-25T23:59:59Z"
+	}
+}
 ```
 
 #### `start_task`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `task_id` | string | Sí | UUID de la tarea |
+| Campo     | Tipo   | Requerido | Descripción      |
+| --------- | ------ | --------- | ---------------- |
+| `task_id` | string | Sí        | UUID de la tarea |
 
 Transición: `pending` → `in_progress` o `postponed` → `in_progress`.
 
 #### `update_task`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `task_id` | string | Sí | UUID de la tarea |
-| `title`, `description`, `due_date`, `objective_id`, `priority`, `context` | varios | No | Campos a actualizar (patch semántico) |
+| Campo                                                                     | Tipo   | Requerido | Descripción                           |
+| ------------------------------------------------------------------------- | ------ | --------- | ------------------------------------- |
+| `task_id`                                                                 | string | Sí        | UUID de la tarea                      |
+| `title`, `description`, `due_date`, `objective_id`, `priority`, `context` | varios | No        | Campos a actualizar (patch semántico) |
 
 #### `complete_task` / `cancel_task`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `task_id` | string | Sí | UUID de la tarea |
+| Campo     | Tipo   | Requerido | Descripción      |
+| --------- | ------ | --------- | ---------------- |
+| `task_id` | string | Sí        | UUID de la tarea |
 
 #### `postpone_task`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `task_id` | string | Sí | UUID de la tarea |
-| `due_date` | string | Sí | Nueva fecha límite ISO 8601 |
+| Campo      | Tipo   | Requerido | Descripción                 |
+| ---------- | ------ | --------- | --------------------------- |
+| `task_id`  | string | Sí        | UUID de la tarea            |
+| `due_date` | string | Sí        | Nueva fecha límite ISO 8601 |
 
 Transiciona a `postponed`.
 
 #### `create_objective`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `title` | string | Sí | Título breve |
-| `description` | string | No | Descripción detallada |
-| `deadline` | string | No | Fecha límite ISO 8601 |
+| Campo         | Tipo   | Requerido | Descripción           |
+| ------------- | ------ | --------- | --------------------- |
+| `title`       | string | Sí        | Título breve          |
+| `description` | string | No        | Descripción detallada |
+| `deadline`    | string | No        | Fecha límite ISO 8601 |
 
 #### `update_objective`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `objective_id` | string | Sí | UUID del objetivo |
-| `title`, `description`, `deadline` | varios | No | Campos a actualizar (patch semántico) |
+| Campo                              | Tipo   | Requerido | Descripción                           |
+| ---------------------------------- | ------ | --------- | ------------------------------------- |
+| `objective_id`                     | string | Sí        | UUID del objetivo                     |
+| `title`, `description`, `deadline` | varios | No        | Campos a actualizar (patch semántico) |
 
 #### `complete_objective`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `objective_id` | string | Sí | UUID del objetivo |
+| Campo          | Tipo   | Requerido | Descripción       |
+| -------------- | ------ | --------- | ----------------- |
+| `objective_id` | string | Sí        | UUID del objetivo |
 
 Validación: no debe tener tareas en estado `pending` o `in_progress`.
 
 #### `cancel_objective`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `objective_id` | string | Sí | UUID del objetivo |
+| Campo          | Tipo   | Requerido | Descripción       |
+| -------------- | ------ | --------- | ----------------- |
+| `objective_id` | string | Sí        | UUID del objetivo |
 
 Efecto cascada: todas sus tareas `pending`, `in_progress`, `postponed` pasan a `cancelled`.
 
 #### `pause_objective` / `resume_objective`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `objective_id` | string | Sí | UUID del objetivo |
+| Campo          | Tipo   | Requerido | Descripción       |
+| -------------- | ------ | --------- | ----------------- |
+| `objective_id` | string | Sí        | UUID del objetivo |
 
 #### `store_memory`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `content` | string | Sí | Texto resumido de la interacción |
-| `metadata` | object | No | `interaction_type`, `entities`, `context` |
+| Campo      | Tipo   | Requerido | Descripción                               |
+| ---------- | ------ | --------- | ----------------------------------------- |
+| `content`  | string | Sí        | Texto resumido de la interacción          |
+| `metadata` | object | No        | `interaction_type`, `entities`, `context` |
 
 ```json
-{ "action": "store_memory", "payload": { "content": "El usuario prefiere hacer tareas los martes", "metadata": { "interaction_type": "preference_declaration" } } }
+{
+	"action": "store_memory",
+	"payload": {
+		"content": "El usuario prefiere hacer tareas los martes",
+		"metadata": { "interaction_type": "preference_declaration" }
+	}
+}
 ```
 
 Flujo: worker genera embedding de `content` con `text-embedding-3-small` e inserta en `memories`.
 
 #### `create_list`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `title` | string | Sí | Título de la lista |
-| `type` | string | No | `shopping`, `ingredients`, `general` (default) |
-| `description` | string | No | Descripción |
-| `items` | array | No | `[{ content, quantity? }]` |
+| Campo         | Tipo   | Requerido | Descripción                                    |
+| ------------- | ------ | --------- | ---------------------------------------------- |
+| `title`       | string | Sí        | Título de la lista                             |
+| `type`        | string | No        | `shopping`, `ingredients`, `general` (default) |
+| `description` | string | No        | Descripción                                    |
+| `items`       | array  | No        | `[{ content, quantity? }]`                     |
 
 #### `add_list_items`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `list_id` | string | Sí | UUID de la lista |
-| `items` | array | Sí | `[{ content, quantity? }]` |
+| Campo     | Tipo   | Requerido | Descripción                |
+| --------- | ------ | --------- | -------------------------- |
+| `list_id` | string | Sí        | UUID de la lista           |
+| `items`   | array  | Sí        | `[{ content, quantity? }]` |
 
 Siempre agrega al array existente, no reemplaza.
 
 #### `check_list_item` / `uncheck_list_item`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `list_id` | string | Sí | UUID de la lista |
-| `item_index` | number | Sí | Índice 0-based |
+| Campo        | Tipo   | Requerido | Descripción      |
+| ------------ | ------ | --------- | ---------------- |
+| `list_id`    | string | Sí        | UUID de la lista |
+| `item_index` | number | Sí        | Índice 0-based   |
 
 #### `complete_list` / `cancel_list`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `list_id` | string | Sí | UUID de la lista |
+| Campo     | Tipo   | Requerido | Descripción      |
+| --------- | ------ | --------- | ---------------- |
+| `list_id` | string | Sí        | UUID de la lista |
 
 Validación en `complete_list`: todos los items deben estar `checked` (o lista vacía).
 
 #### `create_event`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `title` | string | Sí | Título del evento |
-| `start_time` | string | Sí | Inicio ISO 8601 |
-| `end_time` | string | No | Fin ISO 8601 |
-| `description` | string | No | Descripción |
-| `location` | string | No | Ubicación |
-| `category` | string | No | `trabajo`, `personal`, `salud`, etc. |
-| `recurrence_rule` | object | No | Regla de recurrencia |
+| Campo             | Tipo   | Requerido | Descripción                          |
+| ----------------- | ------ | --------- | ------------------------------------ |
+| `title`           | string | Sí        | Título del evento                    |
+| `start_time`      | string | Sí        | Inicio ISO 8601                      |
+| `end_time`        | string | No        | Fin ISO 8601                         |
+| `description`     | string | No        | Descripción                          |
+| `location`        | string | No        | Ubicación                            |
+| `category`        | string | No        | `trabajo`, `personal`, `salud`, etc. |
+| `recurrence_rule` | object | No        | Regla de recurrencia                 |
 
 **`recurrence_rule`**: `{ frequency: "daily"|"weekly"|"monthly"|"yearly", interval?: number, daysOfWeek?: number[], dayOfMonth?: number, monthOfYear?: number, endDate?: string, count?: number }`.
 
 #### `update_event`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `event_id` | string | Sí | UUID del evento |
-| `title`, `description`, `location`, `category`, `start_time`, `end_time` | varios | No | Campos a actualizar (patch semántico) |
+| Campo                                                                    | Tipo   | Requerido | Descripción                           |
+| ------------------------------------------------------------------------ | ------ | --------- | ------------------------------------- |
+| `event_id`                                                               | string | Sí        | UUID del evento                       |
+| `title`, `description`, `location`, `category`, `start_time`, `end_time` | varios | No        | Campos a actualizar (patch semántico) |
 
 #### `delete_event` / `query_events` / `move_event_instance` / `update_recurrence_rule`
 
@@ -314,12 +331,12 @@ Ver schemas completos en `backend/src/workers/action-handlers.ts`. Todos usan `e
 
 #### `create_project`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `title` | string | Sí | Título |
-| `description` | string | No | Descripción |
-| `category` | string | No | `trabajo`, `personal`, etc. |
-| `deadline` | string | No | Fecha límite ISO 8601 |
+| Campo         | Tipo   | Requerido | Descripción                 |
+| ------------- | ------ | --------- | --------------------------- |
+| `title`       | string | Sí        | Título                      |
+| `description` | string | No        | Descripción                 |
+| `category`    | string | No        | `trabajo`, `personal`, etc. |
+| `deadline`    | string | No        | Fecha límite ISO 8601       |
 
 #### `update_project` / `complete_project` / `cancel_project` / `pause_project` / `resume_project`
 
@@ -327,11 +344,11 @@ Todas usan `project_id` (UUID) como identificador. `update_project` acepta `titl
 
 #### `create_idea`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `title` | string | Sí | Título |
-| `description` | string | No | Descripción |
-| `tags` | string[] | No | Tags/categorías |
+| Campo         | Tipo     | Requerido | Descripción     |
+| ------------- | -------- | --------- | --------------- |
+| `title`       | string   | Sí        | Título          |
+| `description` | string   | No        | Descripción     |
+| `tags`        | string[] | No        | Tags/categorías |
 
 Estados: `new_idea` → `evaluating` → `approved` / `discarded` (irreversible). `approved` → `converted`.
 
@@ -341,14 +358,14 @@ Todas usan `idea_id` (UUID). `update_idea` acepta `title`, `description`, `tags`
 
 #### `link_entities`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `source_type` | string | Sí | `task`, `objective`, `project`, `idea`, `list`, `event` |
-| `source_id` | string | Sí | UUID origen |
-| `target_type` | string | Sí | Tipo destino |
-| `target_id` | string | Sí | UUID destino |
-| `relation` | string | No | `related` (default), `part_of`, `depends_on`, `inspired_by`, `blocks` |
-| `note` | string | No | Nota opcional |
+| Campo         | Tipo   | Requerido | Descripción                                                           |
+| ------------- | ------ | --------- | --------------------------------------------------------------------- |
+| `source_type` | string | Sí        | `task`, `objective`, `project`, `idea`, `list`, `event`               |
+| `source_id`   | string | Sí        | UUID origen                                                           |
+| `target_type` | string | Sí        | Tipo destino                                                          |
+| `target_id`   | string | Sí        | UUID destino                                                          |
+| `relation`    | string | No        | `related` (default), `part_of`, `depends_on`, `inspired_by`, `blocks` |
+| `note`        | string | No        | Nota opcional                                                         |
 
 #### `unlink_entities` / `query_links`
 
@@ -356,37 +373,37 @@ Todas usan `idea_id` (UUID). `update_idea` acepta `title`, `description`, `tags`
 
 #### `respond`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `text` | string | Sí | Respuesta natural en español |
+| Campo  | Tipo   | Requerido | Descripción                  |
+| ------ | ------ | --------- | ---------------------------- |
+| `text` | string | Sí        | Respuesta natural en español |
 
 Responde al usuario con texto conversacional usando contexto. **No** almacenar información (usar `store_memory`). Puede incluir `display` opcional con entidades estructuradas.
 
 #### `query_list`
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `list_title` | string | No | Nombre de lista (case-insensitive, partial match). Si omite, retorna todas las activas |
+| Campo        | Tipo   | Requerido | Descripción                                                                            |
+| ------------ | ------ | --------- | -------------------------------------------------------------------------------------- |
+| `list_title` | string | No        | Nombre de lista (case-insensitive, partial match). Si omite, retorna todas las activas |
 
 #### Códigos de error de acción
 
-| Código | Descripción |
-|---|---|
-| `TASK_NOT_FOUND` | No existe tarea con ese ID |
-| `OBJECTIVE_NOT_FOUND` | No existe objetivo con ese ID |
-| `INVALID_STATE_TRANSITION` | Transición no permitida por la máquina de estados |
-| `OBJECTIVE_HAS_PENDING_TASKS` | El objetivo tiene tareas pendientes |
-| `LIST_NOT_FOUND` | No existe lista con ese nombre o ID |
-| `AMBIGUOUS_MATCH` | Múltiples listas coinciden |
-| `LIST_HAS_UNCHECKED_ITEMS` | Lista con items sin completar |
-| `INVALID_ITEM_INDEX` | Índice fuera del array |
-| `MISSING_REQUIRED_FIELD` | Campo requerido faltante |
-| `PREVIOUS_ACTION_FAILED` | Acción dependiente falló |
-| `EVENT_NOT_FOUND` | No existe evento |
-| `INVALID_RECURRENCE_RULE` | Regla de recurrencia inválida |
-| `CANNOT_MODIFY_COMPLETED` | Tarea ya completada |
-| `CANNOT_MODIFY_CANCELLED` | Tarea ya cancelada |
-| `UNKNOWN_ACTION` | Acción no registrada en el router |
+| Código                        | Descripción                                       |
+| ----------------------------- | ------------------------------------------------- |
+| `TASK_NOT_FOUND`              | No existe tarea con ese ID                        |
+| `OBJECTIVE_NOT_FOUND`         | No existe objetivo con ese ID                     |
+| `INVALID_STATE_TRANSITION`    | Transición no permitida por la máquina de estados |
+| `OBJECTIVE_HAS_PENDING_TASKS` | El objetivo tiene tareas pendientes               |
+| `LIST_NOT_FOUND`              | No existe lista con ese nombre o ID               |
+| `AMBIGUOUS_MATCH`             | Múltiples listas coinciden                        |
+| `LIST_HAS_UNCHECKED_ITEMS`    | Lista con items sin completar                     |
+| `INVALID_ITEM_INDEX`          | Índice fuera del array                            |
+| `MISSING_REQUIRED_FIELD`      | Campo requerido faltante                          |
+| `PREVIOUS_ACTION_FAILED`      | Acción dependiente falló                          |
+| `EVENT_NOT_FOUND`             | No existe evento                                  |
+| `INVALID_RECURRENCE_RULE`     | Regla de recurrencia inválida                     |
+| `CANNOT_MODIFY_COMPLETED`     | Tarea ya completada                               |
+| `CANNOT_MODIFY_CANCELLED`     | Tarea ya cancelada                                |
+| `UNKNOWN_ACTION`              | Acción no registrada en el router                 |
 
 ### AI Integrations
 
