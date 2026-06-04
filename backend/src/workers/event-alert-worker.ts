@@ -22,23 +22,24 @@ import {
 import { sendNotification } from "../notifications/fcm.js";
 
 const POLL_INTERVAL_MS = 60_000;
-const UPDATE_INTERVAL_MS = 5 * 60_000;
 const MAX_LIST_ITEMS = 15;
 
-type SentState = {
-	sentAt: number;
-	lastUpdated: number;
-};
-
-const sentNotifications = new Map<string, SentState>();
+const sentNotifications = new Set<string>();
 
 type LinkedEntityData = {
+	id: string;
 	type: string;
 	title: string;
+	description?: string;
+	relation?: string;
+	note?: string;
 	items?: Array<{ content: string; checked: boolean; quantity?: string }>;
 	status?: string;
 	priority?: string;
 	deadline?: string;
+	listType?: string;
+	category?: string;
+	tags?: string[];
 };
 
 function isRecurringInstanceActive(event: EventRecord, now: Date): boolean {
@@ -117,8 +118,14 @@ async function resolveLinkedEntities(
 					if (list) {
 						const items = listRepository.getItems(list);
 						entities.push({
+							id: list.id,
 							type: "list",
 							title: list.title,
+							description: list.description ?? undefined,
+							status: list.status,
+							listType: list.type,
+							relation: link.relation,
+							note: link.note ?? undefined,
 							items: items.map((i) => ({
 								content: i.content,
 								checked: i.checked,
@@ -132,10 +139,15 @@ async function resolveLinkedEntities(
 					const task = await taskRepository.getTaskById(otherId);
 					if (task) {
 						entities.push({
+							id: task.id,
 							type: "task",
 							title: task.title,
+							description: task.description ?? undefined,
 							status: task.status,
 							priority: task.priority,
+							deadline: task.dueDate?.toISOString(),
+							relation: link.relation,
+							note: link.note ?? undefined,
 						});
 					}
 					break;
@@ -144,10 +156,14 @@ async function resolveLinkedEntities(
 					const objective = await objectiveRepository.getObjectiveById(otherId);
 					if (objective) {
 						entities.push({
+							id: objective.id,
 							type: "objective",
 							title: objective.title,
+							description: objective.description ?? undefined,
 							status: objective.status,
 							deadline: objective.deadline?.toISOString(),
+							relation: link.relation,
+							note: link.note ?? undefined,
 						});
 					}
 					break;
@@ -156,9 +172,15 @@ async function resolveLinkedEntities(
 					const project = await projectRepository.getProjectById(otherId);
 					if (project) {
 						entities.push({
+							id: project.id,
 							type: "project",
 							title: project.title,
+							description: project.description ?? undefined,
 							status: project.status,
+							category: project.category ?? undefined,
+							deadline: project.deadline?.toISOString(),
+							relation: link.relation,
+							note: link.note ?? undefined,
 						});
 					}
 					break;
@@ -167,9 +189,14 @@ async function resolveLinkedEntities(
 					const idea = await ideaRepository.getIdeaById(otherId);
 					if (idea) {
 						entities.push({
+							id: idea.id,
 							type: "idea",
 							title: idea.title,
+							description: idea.description ?? undefined,
 							status: idea.status,
+							tags: idea.tags,
+							relation: link.relation,
+							note: link.note ?? undefined,
 						});
 					}
 					break;
@@ -198,6 +225,7 @@ async function sendEventNotification(
 	const eventData = {
 		id: event.id,
 		title: event.title,
+		description: event.description,
 		startTime: event.startTime.toISOString(),
 		endTime: event.endTime?.toISOString() ?? null,
 		location: event.location,
@@ -217,15 +245,30 @@ async function sendEventNotification(
 						]
 					: ent.items;
 			return {
+				id: ent.id,
 				type: ent.type,
 				title: ent.title,
+				description: ent.description,
+				status: ent.status,
+				listType: ent.listType,
+				relation: ent.relation,
+				note: ent.note,
 				items: truncatedItems,
 			};
 		}
 		return {
+			id: ent.id,
 			type: ent.type,
 			title: ent.title,
+			description: ent.description,
 			status: ent.status,
+			priority: ent.priority,
+			deadline: ent.deadline,
+			listType: ent.listType,
+			category: ent.category,
+			tags: ent.tags,
+			relation: ent.relation,
+			note: ent.note,
 		};
 	});
 
@@ -250,6 +293,7 @@ async function sendEventNotification(
 			title: `📅 ${event.title}`,
 			body: bodySummary.join(" · "),
 			data: dataPayload,
+			sendNotification: true,
 		});
 		if (!result.ok) {
 			logger.warn(
@@ -275,6 +319,7 @@ async function sendEventCancelNotification(eventId: string): Promise<void> {
 			title: "",
 			body: "",
 			data: dataPayload,
+			sendNotification: false,
 		});
 		if (!result.ok) {
 			await deviceRepository.removeToken(token).catch(() => {});
@@ -292,25 +337,19 @@ async function pollActiveEvents(): Promise<void> {
 			if (!isEventActiveNow(event, now)) continue;
 
 			activeEventIds.add(event.id);
-			const sent = sentNotifications.get(event.id);
-			const shouldSend =
-				!sent || now.getTime() - sent.lastUpdated >= UPDATE_INTERVAL_MS;
 
-			if (!shouldSend) continue;
+			if (sentNotifications.has(event.id)) continue;
 
 			const links = await entityLinkRepository.getLinksFor("event", event.id);
 			await sendEventNotification(event, links);
-			sentNotifications.set(event.id, {
-				sentAt: now.getTime(),
-				lastUpdated: now.getTime(),
-			});
+			sentNotifications.add(event.id);
 			logger.info(
 				{ eventId: event.id, eventTitle: event.title },
 				"Event notification sent",
 			);
 		}
 
-		for (const [eventId] of sentNotifications.entries()) {
+		for (const eventId of sentNotifications) {
 			if (!activeEventIds.has(eventId)) {
 				await sendEventCancelNotification(eventId);
 				sentNotifications.delete(eventId);
@@ -320,6 +359,10 @@ async function pollActiveEvents(): Promise<void> {
 	} catch (error) {
 		logger.error({ error }, "Error polling active events");
 	}
+}
+
+export async function pollActiveEventsOnce(): Promise<void> {
+	await pollActiveEvents();
 }
 
 export function startEventAlertWorker(): () => void {

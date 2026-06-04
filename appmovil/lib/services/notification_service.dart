@@ -157,6 +157,14 @@ class NotificationService {
     }
   }
 
+  int _notificationIdForEvent(String eventId) {
+    var hash = 0;
+    for (final codeUnit in eventId.codeUnits) {
+      hash = (hash * 31 + codeUnit) & 0x7FFFFFFF;
+    }
+    return hash;
+  }
+
   Future<void> _handleEventNotification(Map<String, dynamic> data) async {
     final eventJson = data['event'] as String?;
     final linksJson = data['links'] as String?;
@@ -169,15 +177,19 @@ class NotificationService {
       final startTime = event['startTime'] as String?;
       final endTime = event['endTime'] as String?;
       final location = event['location'] as String?;
+      final description = event['description'] as String?;
+      final category = event['category'] as String?;
 
       final List<Map<String, dynamic>> links = linksJson != null
           ? (jsonDecode(linksJson) as List<dynamic>).cast<Map<String, dynamic>>()
           : [];
 
-      final fullBody = _buildNotificationBody(title, startTime, endTime, location, links);
+      final fullBody = _buildNotificationBody(
+        title, startTime, endTime, location, description, category, links,
+      );
       final collapsedText = fullBody.isNotEmpty ? fullBody : 'Evento en curso';
 
-      final notificationId = eventId.hashCode & 0x7FFFFFFF;
+      final notificationId = _notificationIdForEvent(eventId);
 
       final androidDetails = AndroidNotificationDetails(
         _eventChannelId,
@@ -218,6 +230,8 @@ class NotificationService {
     String? startTime,
     String? endTime,
     String? location,
+    String? description,
+    String? category,
     List<Map<String, dynamic>> links,
   ) {
     final buffer = StringBuffer();
@@ -233,14 +247,24 @@ class NotificationService {
     if (location != null) {
       timeParts.add('📍 $location');
     }
+    if (category != null) {
+      timeParts.add('#$category');
+    }
     if (timeParts.isNotEmpty) {
       buffer.writeln(timeParts.join('  '));
+    }
+
+    if (description != null && description.isNotEmpty) {
+      buffer.writeln(description);
     }
 
     for (final link in links) {
       buffer.writeln();
       final linkType = link['type'] as String?;
       final linkTitle = link['title'] as String? ?? '';
+      final linkDescription = link['description'] as String?;
+      final linkNote = link['note'] as String?;
+      final status = link['status'] as String?;
 
       switch (linkType) {
         case 'list':
@@ -250,38 +274,133 @@ class NotificationService {
             for (final item in items) {
               final content = item['content'] as String? ?? '';
               final checked = item['checked'] as bool? ?? false;
-              buffer.writeln('  ${checked ? '✅' : '☐'} $content');
+              final quantity = item['quantity'] as String?;
+              final suffix = quantity != null ? ' ($quantity)' : '';
+              buffer.writeln('  ${checked ? '✅' : '☐'} $content$suffix');
             }
           }
           break;
         case 'task':
-          final status = link['status'] as String?;
-          final statusEmoji = status == 'completed' ? '✅' : '☐';
-          buffer.writeln('$statusEmoji  $linkTitle');
+          final priority = link['priority'] as String?;
+          final deadline = link['deadline'] as String?;
+          final statusEmoji = _taskStatusEmoji(status);
+          final priorityEmoji = _priorityEmoji(priority);
+          buffer.writeln('$statusEmoji $priorityEmoji $linkTitle');
+          final meta = _buildTaskMeta(status, deadline);
+          if (meta.isNotEmpty) buffer.writeln('  $meta');
           break;
         case 'objective':
           buffer.writeln('🎯  $linkTitle');
+          final objectiveMeta = _buildObjectiveMeta(status, link['deadline'] as String?);
+          if (objectiveMeta.isNotEmpty) buffer.writeln('  $objectiveMeta');
           break;
         case 'project':
           buffer.writeln('📂  $linkTitle');
+          final projectMeta = _buildProjectMeta(status, link['category'] as String?);
+          if (projectMeta.isNotEmpty) buffer.writeln('  $projectMeta');
           break;
         case 'idea':
+          final tags = link['tags'] as List<dynamic>?;
           buffer.writeln('💡  $linkTitle');
+          final ideaMeta = _buildIdeaMeta(status, tags);
+          if (ideaMeta.isNotEmpty) buffer.writeln('  $ideaMeta');
           break;
         default:
           if (linkTitle.isNotEmpty) {
             buffer.writeln('• $linkTitle');
           }
       }
+
+      if (linkDescription != null && linkDescription.isNotEmpty) {
+        buffer.writeln('  $linkDescription');
+      }
+      if (linkNote != null && linkNote.isNotEmpty) {
+        buffer.writeln('  📝 $linkNote');
+      }
     }
 
     return buffer.toString().trim();
   }
 
+  String _taskStatusEmoji(String? status) {
+    return switch (status) {
+      'completed' => '✅',
+      'in_progress' => '🔄',
+      'postponed' => '⏳',
+      'cancelled' => '❌',
+      _ => '☐',
+    };
+  }
+
+  String _priorityEmoji(String? priority) {
+    return switch (priority) {
+      'high' => '🔴',
+      'medium' => '🟡',
+      'low' => '🟢',
+      _ => '',
+    };
+  }
+
+  String _buildTaskMeta(String? status, String? deadline) {
+    final parts = <String>[];
+    if (status != null) parts.add(_statusLabel(status));
+    if (deadline != null) {
+      parts.add('📅 ${_formatDate(DateTime.parse(deadline))}');
+    }
+    return parts.join(' · ');
+  }
+
+  String _buildObjectiveMeta(String? status, String? deadline) {
+    final parts = <String>[];
+    if (status != null) parts.add(_statusLabel(status));
+    if (deadline != null) {
+      parts.add('📅 ${_formatDate(DateTime.parse(deadline))}');
+    }
+    return parts.join(' · ');
+  }
+
+  String _buildProjectMeta(String? status, String? category) {
+    final parts = <String>[];
+    if (status != null) parts.add(_statusLabel(status));
+    if (category != null) parts.add('#$category');
+    return parts.join(' · ');
+  }
+
+  String _buildIdeaMeta(String? status, List<dynamic>? tags) {
+    final parts = <String>[];
+    if (status != null) parts.add(_statusLabel(status));
+    if (tags != null && tags.isNotEmpty) {
+      parts.add(tags.map((t) => '#$t').join(' '));
+    }
+    return parts.join(' · ');
+  }
+
+  String _statusLabel(String status) {
+    return switch (status) {
+      'active' => 'Activo',
+      'completed' => 'Completado',
+      'cancelled' => 'Cancelado',
+      'in_progress' => 'En progreso',
+      'pending' => 'Pendiente',
+      'postponed' => 'Pospuesto',
+      'paused' => 'Pausado',
+      'new_idea' => 'Nueva',
+      'evaluating' => 'Evaluando',
+      'approved' => 'Aprobada',
+      'discarded' => 'Descartada',
+      'converted' => 'Convertida',
+      _ => status,
+    };
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}';
+  }
+
   void _handleEventCancel(Map<String, dynamic> data) {
     final eventId = data['event_id'] as String?;
     if (eventId == null) return;
-    final notificationId = eventId.hashCode & 0x7FFFFFFF;
+    final notificationId = _notificationIdForEvent(eventId);
     _notifications.cancel(notificationId);
     developer.log(
       'Event notification cancelled: $eventId',

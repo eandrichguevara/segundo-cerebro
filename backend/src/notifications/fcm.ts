@@ -16,6 +16,7 @@ type FcmPayload = {
 	title: string;
 	body: string;
 	data?: Record<string, string>;
+	sendNotification?: boolean;
 };
 
 export async function sendNotification(
@@ -27,6 +28,14 @@ export async function sendNotification(
 		const message: messaging.Message = {
 			token: fcmToken,
 			data: payload.data,
+			...(payload.sendNotification !== false && payload.title
+				? {
+						notification: {
+							title: payload.title,
+							body: payload.body,
+						},
+					}
+				: {}),
 		};
 
 		const timeoutPromise = new Promise<never>((_, reject) =>
