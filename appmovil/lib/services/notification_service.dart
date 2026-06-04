@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:developer' as developer;
+import 'dart:typed_data';
 
 import 'dart:io' show Platform;
 
@@ -147,6 +148,11 @@ class NotificationService {
         await _handleEventNotification(data);
       case 'event_notification_cancel':
         _handleEventCancel(data);
+      default:
+        developer.log(
+          'Unknown notification type: $type',
+          name: 'NotificationService',
+        );
     }
   }
 
@@ -167,7 +173,8 @@ class NotificationService {
           ? (jsonDecode(linksJson) as List<dynamic>).cast<Map<String, dynamic>>()
           : [];
 
-      final body = _buildNotificationBody(title, startTime, endTime, location, links);
+      final fullBody = _buildNotificationBody(title, startTime, endTime, location, links);
+      final collapsedText = fullBody.isNotEmpty ? fullBody : 'Evento en curso';
 
       final notificationId = eventId.hashCode & 0x7FFFFFFF;
 
@@ -183,8 +190,9 @@ class NotificationService {
         showWhen: false,
         usesChronometer: false,
         category: AndroidNotificationCategory.event,
+        additionalFlags: Int32List.fromList([32, 128]),
         styleInformation: BigTextStyleInformation(
-          body,
+          fullBody,
           contentTitle: '📅  $title',
           summaryText: 'Evento en curso',
         ),
@@ -193,7 +201,7 @@ class NotificationService {
       await _notifications.show(
         notificationId,
         '📅  $title',
-        'Evento en curso',
+        collapsedText,
         NotificationDetails(android: androidDetails),
       );
     } catch (e) {
@@ -213,8 +221,6 @@ class NotificationService {
   ) {
     final buffer = StringBuffer();
 
-    buffer.writeln('📅  $title');
-
     final timeParts = <String>[];
     if (startTime != null) {
       final start = DateTime.parse(startTime);
@@ -227,7 +233,7 @@ class NotificationService {
       timeParts.add('📍 $location');
     }
     if (timeParts.isNotEmpty) {
-      buffer.writeln('    ${timeParts.join('  ')}');
+      buffer.writeln(timeParts.join('  '));
     }
 
     for (final link in links) {
@@ -255,6 +261,12 @@ class NotificationService {
         case 'objective':
           buffer.writeln('🎯  $linkTitle');
           break;
+        case 'project':
+          buffer.writeln('📂  $linkTitle');
+          break;
+        case 'idea':
+          buffer.writeln('💡  $linkTitle');
+          break;
         default:
           if (linkTitle.isNotEmpty) {
             buffer.writeln('• $linkTitle');
@@ -262,7 +274,7 @@ class NotificationService {
       }
     }
 
-    return buffer.toString();
+    return buffer.toString().trim();
   }
 
   void _handleEventCancel(Map<String, dynamic> data) {

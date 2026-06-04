@@ -10,8 +10,10 @@ import {
 	type EventRecord,
 	getActiveEventsInProgress,
 } from "../db/repositories/event-repository.js";
+import * as ideaRepository from "../db/repositories/idea-repository.js";
 import * as listRepository from "../db/repositories/list-repository.js";
 import * as objectiveRepository from "../db/repositories/objective-repository.js";
+import * as projectRepository from "../db/repositories/project-repository.js";
 import * as taskRepository from "../db/repositories/task-repository.js";
 import {
 	type RecurrenceRule,
@@ -21,6 +23,7 @@ import { sendNotification } from "../notifications/fcm.js";
 
 const POLL_INTERVAL_MS = 60_000;
 const UPDATE_INTERVAL_MS = 5 * 60_000;
+const MAX_LIST_ITEMS = 15;
 
 type SentState = {
 	sentAt: number;
@@ -150,11 +153,25 @@ async function resolveLinkedEntities(
 					break;
 				}
 				case "project": {
-					entities.push({ type: "project", title: otherId });
+					const project = await projectRepository.getProjectById(otherId);
+					if (project) {
+						entities.push({
+							type: "project",
+							title: project.title,
+							status: project.status,
+						});
+					}
 					break;
 				}
 				case "idea": {
-					entities.push({ type: "idea", title: otherId });
+					const idea = await ideaRepository.getIdeaById(otherId);
+					if (idea) {
+						entities.push({
+							type: "idea",
+							title: idea.title,
+							status: idea.status,
+						});
+					}
 					break;
 				}
 			}
@@ -189,10 +206,20 @@ async function sendEventNotification(
 
 	const linksData = linkedEntities.map((ent) => {
 		if (ent.type === "list" && ent.items) {
+			const truncatedItems =
+				ent.items.length > MAX_LIST_ITEMS
+					? [
+							...ent.items.slice(0, MAX_LIST_ITEMS),
+							{
+								content: `... y ${ent.items.length - MAX_LIST_ITEMS} más`,
+								checked: false,
+							},
+						]
+					: ent.items;
 			return {
 				type: ent.type,
 				title: ent.title,
-				items: ent.items,
+				items: truncatedItems,
 			};
 		}
 		return {
