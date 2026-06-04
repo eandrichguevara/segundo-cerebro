@@ -4,6 +4,12 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+pnpm:
+  onlyBuiltDependencies:
+    - msw
+    - sharp
+    - unrs-resolver
+
 importers:
 
   .:
