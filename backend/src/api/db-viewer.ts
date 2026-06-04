@@ -199,11 +199,21 @@ export async function dbViewerRoutes(app: FastifyInstance): Promise<void> {
 		const offset = Number(query.offset) || 0;
 
 		const now = new Date();
-		const end = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+		const startOfToday = new Date(now);
+		startOfToday.setHours(0, 0, 0, 0);
 
-		const where: Record<string, unknown> = {
-			startTime: { gte: now, lte: end },
-		};
+		const past = query.past === "true";
+
+		let where: Record<string, unknown>;
+		if (past) {
+			const start = new Date(
+				startOfToday.getTime() - days * 24 * 60 * 60 * 1000,
+			);
+			where = { startTime: { gte: start, lt: startOfToday } };
+		} else {
+			const end = new Date(startOfToday.getTime() + days * 24 * 60 * 60 * 1000);
+			where = { startTime: { gte: startOfToday, lte: end } };
+		}
 		if (status) {
 			where.status = status;
 		} else {
@@ -213,7 +223,7 @@ export async function dbViewerRoutes(app: FastifyInstance): Promise<void> {
 		const [data, total] = await Promise.all([
 			prisma.event.findMany({
 				where,
-				orderBy: { startTime: "asc" },
+				orderBy: { startTime: past ? "desc" : "asc" },
 				take: limit,
 				skip: offset,
 			}),
