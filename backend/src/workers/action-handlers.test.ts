@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("../config/env.js", () => ({
+	env: {
+		TIMEZONE: "America/Argentina/Buenos_Aires",
+	},
+}));
+
 vi.mock("../config/logger.js", () => ({
 	logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
