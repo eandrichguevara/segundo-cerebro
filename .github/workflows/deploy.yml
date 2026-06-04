@@ -11,26 +11,46 @@ env:
   IMAGE_NAME_WEB: ${{ secrets.DOCKER_USER }}/segundo-cerebro-web
 
 jobs:
-  test:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'deploy/docker-compose.prod.yml'
+              - '.github/workflows/deploy.yml'
+            web:
+              - 'web/**'
+              - 'deploy/docker-compose.prod.yml'
+              - '.github/workflows/deploy.yml'
+          default: 'true'
+
+  test-backend:
     name: Test & Lint (backend)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
         with:
           version: 9
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: backend/pnpm-lock.yaml
-
       - run: pnpm install --frozen-lockfile
       - run: pnpm prisma:generate
       - run: pnpm test
@@ -38,55 +58,48 @@ jobs:
 
   test-web:
     name: Lint & Build (web)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: web
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
         with:
           version: 9
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
-
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm build
 
-  build-and-push:
-    name: Build & Push Docker Images
-    needs: [test, test-web]
+  build-and-push-backend:
+    name: Build & Push Backend
+    needs: [changes, test-backend]
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
-
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
           driver-opts: env.mtu=1400
-
       - name: Generate image tag
         id: tag
         run: echo "tag=$(date +%Y%m%d-%H%M%S)-${{ github.sha }}" >> $GITHUB_OUTPUT
-
-      - name: Build and push backend
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: backend
@@ -98,7 +111,28 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build and push web
+  build-and-push-web:
+    name: Build & Push Web
+    needs: [changes, test-web]
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: env.mtu=1400
+      - name: Generate image tag
+        id: tag
+        run: echo "tag=$(date +%Y%m%d-%H%M%S)-${{ github.sha }}" >> $GITHUB_OUTPUT
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: web
@@ -110,14 +144,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  deploy:
-    name: Deploy to OCI
-    needs: build-and-push
+  sync-deploy-files:
+    name: Sync deploy files
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Copy deploy files to server
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -128,6 +161,15 @@ jobs:
           target: "/home/ubuntu/segundo-cerebro"
           strip_components: 1
 
+  deploy-backend:
+    name: Deploy Backend to OCI
+    needs: [changes, build-and-push-backend, sync-deploy-files]
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-backend-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -136,10 +178,8 @@ jobs:
           key: ${{ secrets.OCI_SSH_KEY }}
           script: |
             set -e
-
             cd /home/ubuntu/segundo-cerebro
 
-            # Crear .env si no existe
             if [ ! -f .env ]; then
               cat > .env << 'EOF'
             AUTH_TOKEN=${{ secrets.AUTH_TOKEN }}
@@ -152,19 +192,46 @@ jobs:
             EOF
             fi
 
-            # Firebase service account (si cambió)
             echo '${{ secrets.FCM_SERVICE_ACCOUNT }}' > fcm-service-account.json
 
-            # Pull latest images
-            docker compose -f docker-compose.prod.yml pull
-
-            # Apply migrations
+            docker compose -f docker-compose.prod.yml pull backend
             docker compose -f docker-compose.prod.yml run --rm \
               -e DATABASE_URL="postgresql://segundo_cerebro:${{ secrets.DB_PASSWORD }}@postgres:5432/segundo_cerebro?schema=public" \
               backend npx prisma migrate deploy
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans backend
+            docker image prune -af
 
-            # Restart services
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+  deploy-web:
+    name: Deploy Web to OCI
+    needs: [changes, build-and-push-web, sync-deploy-files]
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-web-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.OCI_SSH_HOST }}
+          username: ${{ secrets.OCI_SSH_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          script: |
+            set -e
+            cd /home/ubuntu/segundo-cerebro
 
-            # Cleanup old images
+            if [ ! -f .env ]; then
+              cat > .env << 'EOF'
+            AUTH_TOKEN=${{ secrets.AUTH_TOKEN }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            LOG_LEVEL=${{ secrets.LOG_LEVEL }}
+            TIMEZONE=${{ secrets.TIMEZONE }}
+            DOCKER_USER=${{ secrets.DOCKER_USER }}
+            IMAGE_TAG=latest
+            EOF
+            fi
+
+            docker compose -f docker-compose.prod.yml pull web
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans web
             docker image prune -af
