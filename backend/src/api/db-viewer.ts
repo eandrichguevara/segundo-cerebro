@@ -1,4 +1,6 @@
 import type { FastifyInstance } from "fastify";
+import { getStartOfDayInTimezone } from "../config/current-time.js";
+import { env } from "../config/env.js";
 import { prisma } from "../db/index.js";
 
 type EntityType = "task" | "objective" | "project" | "idea" | "list" | "event";
@@ -198,9 +200,7 @@ export async function dbViewerRoutes(app: FastifyInstance): Promise<void> {
 		const limit = Math.min(Number(query.limit) || 100, 500);
 		const offset = Number(query.offset) || 0;
 
-		const now = new Date();
-		const startOfToday = new Date(now);
-		startOfToday.setHours(0, 0, 0, 0);
+		const startOfToday = getStartOfDayInTimezone(new Date(), env.TIMEZONE);
 
 		const past = query.past === "true";
 
