@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { version } from "../../package.json";
 
 const NAV_ITEMS = [
 	{ href: "/", label: "Dashboard", icon: "📊" },
@@ -54,6 +55,9 @@ export function Sidebar() {
 			<div className="border-t border-border p-3">
 				<p className="text-center text-[10px] text-muted-foreground">
 					DB Viewer
+				</p>
+				<p className="text-center text-[10px] text-white/20">
+					v{version}
 				</p>
 			</div>
 		</aside>

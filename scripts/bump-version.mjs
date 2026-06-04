@@ -42,6 +42,10 @@ const updatedPubspec = pubspecRaw.replace(
 writeFileSync('./appmovil/pubspec.yaml', updatedPubspec);
 console.log('  \u2713 appmovil/pubspec.yaml');
 
+const versionDart = `const String appVersion = '${newVersion}';\nconst int buildNumber = ${newBuild};\n`;
+writeFileSync('./appmovil/lib/config/version.dart', versionDart);
+console.log('  \u2713 appmovil/lib/config/version.dart');
+
 const tag = `v${newVersion}`;
 
 execSync('git add -A', { stdio: 'inherit' });

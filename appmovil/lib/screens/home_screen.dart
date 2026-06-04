@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import '../config/version.dart';
 import '../models/chat_item.dart';
 import '../models/display_entity.dart';
 import '../services/audio_service.dart';
@@ -395,6 +396,14 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ),
           const Spacer(),
+          Text(
+            "v$appVersion+$buildNumber",
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.25),
+              fontSize: 11,
+            ),
+          ),
+          if (_history.isNotEmpty) const SizedBox(width: 8),
           if (_history.isNotEmpty)
             GestureDetector(
               onTap: _clearHistory,
