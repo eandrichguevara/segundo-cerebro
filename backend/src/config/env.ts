@@ -32,7 +32,7 @@ const envSchema = z.object({
 	SLOW_LANE_MAX_TOKENS: z.coerce.number().int().positive().default(4000),
 	ID_CACHE_SIZE: z.coerce.number().int().positive().default(1000),
 	ID_CACHE_TTL_MS: z.coerce.number().int().positive().default(300_000),
-	TIMEZONE: z.string().default("America/Argentina/Buenos_Aires"),
+	TIMEZONE: z.string().default("America/Santiago"),
 	FCM_SERVICE_ACCOUNT: z.string().min(1),
 });
 

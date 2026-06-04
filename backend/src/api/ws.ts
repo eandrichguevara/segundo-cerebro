@@ -291,10 +291,20 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 					msg.platform ?? "unknown",
 				);
 				logger.info({ sessionId: state.sessionId }, "FCM token registrado");
+				sendJson({
+					version: "1",
+					type: "notification_registered",
+					...(msg.id ? { correlation_id: msg.id } : {}),
+				});
 			} catch (error) {
 				logger.error(
 					{ error, sessionId: state.sessionId },
 					"Error registrando FCM token",
+				);
+				sendError(
+					"INTERNAL_ERROR",
+					"Error al registrar token de notificación",
+					msg.id,
 				);
 			}
 		}

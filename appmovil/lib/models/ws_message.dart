@@ -266,6 +266,21 @@ class ProcessingMessage extends WsMessage {
   Map<String, dynamic> toJson() => throw UnimplementedError();
 }
 
+class NotificationRegisteredMessage extends WsMessage {
+  final String? correlationId;
+
+  NotificationRegisteredMessage({this.correlationId})
+      : super('notification_registered');
+
+  factory NotificationRegisteredMessage.fromJson(Map<String, dynamic> json) =>
+      NotificationRegisteredMessage(
+        correlationId: json['correlation_id'] as String?,
+      );
+
+  @override
+  Map<String, dynamic> toJson() => throw UnimplementedError();
+}
+
 // ─── Parser ───
 
 WsMessage parseServerMessage(Map<String, dynamic> json) {
@@ -291,6 +306,8 @@ WsMessage parseServerMessage(Map<String, dynamic> json) {
       return DisplayMessage.fromJson(json);
     case 'processing':
       return ProcessingMessage.fromJson(json);
+    case 'notification_registered':
+      return NotificationRegisteredMessage.fromJson(json);
     default:
       throw FormatException('Unknown message type: $type');
   }

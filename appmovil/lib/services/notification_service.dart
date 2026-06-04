@@ -132,8 +132,9 @@ class NotificationService {
 
   void _sendTokenToWs() {
     if (_fcmToken == null || _wsService == null) return;
+    final platform = Platform.isAndroid ? 'android' : Platform.isIOS ? 'ios' : 'unknown';
     _wsService!.sendMessage(
-      RegisterFcmTokenMessage(token: _fcmToken!, platform: 'android'),
+      RegisterFcmTokenMessage(token: _fcmToken!, platform: platform),
     );
     developer.log('FCM token sent to backend', name: 'NotificationService');
   }

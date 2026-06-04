@@ -130,6 +130,8 @@ class WebSocketService {
           disconnect();
         }
         break;
+      case NotificationRegisteredMessage():
+        break;
       case AuthMessage():
       case AudioChunkMessage():
       case AudioEndMessage():
