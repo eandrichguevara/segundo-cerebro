@@ -25,13 +25,76 @@ import * as projectRepository from "../db/repositories/project-repository.js";
 import { getActiveTasks } from "../db/repositories/task-repository.js";
 import { generateEmbedding } from "../llm/embeddings.js";
 import { SLOW_LANE_SYSTEM_PROMPT } from "../llm/prompts/slow-lane-system.js";
-import { extractActions } from "../llm/slow-lane.js";
+import { type Action, extractActions } from "../llm/slow-lane.js";
 import { notifyUser } from "../notifications/notifier.js";
 import { getHandler } from "./action-handlers.js";
 import type { ActionResult } from "./action-handlers.js";
 import { formatActionResponse } from "./format-response.js";
 
 const WORKER_ID = `worker-${crypto.randomUUID().slice(0, 8)}`;
+
+export function resolveUuidPlaceholder(
+	payload: Record<string, unknown>,
+	dependsOn: number,
+	actionResults: ActionResult[],
+	actions: Action[],
+): Record<string, unknown> {
+	const resolved = { ...payload };
+	for (const [key, value] of Object.entries(resolved)) {
+		resolved[key] = resolvePayloadValue(
+			value,
+			dependsOn,
+			actionResults,
+			actions,
+		);
+	}
+	return resolved;
+}
+
+export function resolvePayloadValue(
+	value: unknown,
+	dependsOn: number,
+	actionResults: ActionResult[],
+	actions: Action[],
+): unknown {
+	if (value === "<uuid>") {
+		return findCreatedEntityId(dependsOn, actionResults, actions);
+	}
+	if (Array.isArray(value)) {
+		return value.map((item) =>
+			resolvePayloadValue(item, dependsOn, actionResults, actions),
+		);
+	}
+	if (value !== null && typeof value === "object") {
+		const resolved: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+			resolved[k] = resolvePayloadValue(v, dependsOn, actionResults, actions);
+		}
+		return resolved;
+	}
+	return value;
+}
+
+export function findCreatedEntityId(
+	dependsOn: number,
+	actionResults: ActionResult[],
+	actions: Action[],
+	visited = new Set<number>(),
+): string | null {
+	if (visited.has(dependsOn)) {
+		return null;
+	}
+	visited.add(dependsOn);
+	const result = actionResults[dependsOn];
+	if (result?.ok && typeof result.payload.id === "string") {
+		return result.payload.id;
+	}
+	const parentDep = actions[dependsOn]?.depends_on;
+	if (parentDep !== undefined) {
+		return findCreatedEntityId(parentDep, actionResults, actions, visited);
+	}
+	return null;
+}
 
 async function formatConversationTurns(sessionId: string): Promise<string> {
 	try {
@@ -429,7 +492,16 @@ async function processJob(): Promise<void> {
 			}
 
 			try {
-				const result = await handler(actionDef.payload, correlationId);
+				const resolvedPayload =
+					actionDef.depends_on !== undefined
+						? resolveUuidPlaceholder(
+								actionDef.payload,
+								actionDef.depends_on,
+								actionResults,
+								actions,
+							)
+						: actionDef.payload;
+				const result = await handler(resolvedPayload, correlationId);
 				actionResults.push(result);
 				if (!result.ok) {
 					failedIndices.add(i);

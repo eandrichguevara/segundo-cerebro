@@ -1,6 +1,12 @@
 export const SLOW_LANE_ACTIONS_PROMPT = `
 ## Acciones disponibles
 
+**Nota sobre placeholders**: Cuando una acción tiene \`depends_on\` y necesita el ID
+de una entidad creada por una acción anterior, usá \`"<uuid>"\` como valor en cualquier
+campo UUID del payload. El sistema reemplazará \`<uuid>\` con el ID real de la entidad
+creada por la primera acción en la cadena de dependencias.
+Ej: \`create_task\` → \`start_task\` con \`{"task_id": "<uuid>"}\`.
+
 ### respond
 Payload: { messages: string[], display?: DisplayEntity[] }
 
