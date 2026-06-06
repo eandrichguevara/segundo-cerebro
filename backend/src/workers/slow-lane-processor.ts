@@ -1,6 +1,7 @@
 import { ConversationRole } from "@prisma/client";
-import { sendToSession } from "../api/ws.js";
+import { getInterviewStateOrThrow, sendToSession } from "../api/ws.js";
 import { getStartOfDayInTimezone } from "../config/current-time.js";
+import { formatCurrentTime } from "../config/current-time.js";
 import { env } from "../config/env.js";
 import { logger } from "../config/logger.js";
 import {
@@ -18,12 +19,27 @@ import {
 import * as listRepository from "../db/repositories/list-repository.js";
 import {
 	createMemory,
+	getRecentMemories,
 	getRelevantMemories,
 } from "../db/repositories/memory-repository.js";
 import { getActiveObjectives } from "../db/repositories/objective-repository.js";
 import * as projectRepository from "../db/repositories/project-repository.js";
 import { getActiveTasks } from "../db/repositories/task-repository.js";
+import {
+	type InterviewArea,
+	type InterviewExchange,
+	type InterviewPlan,
+	addExchange,
+	formatInterviewContext,
+	formatInterviewPlanForScan,
+	incrementEntitiesCreated,
+	incrementQuestionsAsked,
+} from "../domain/interview.js";
+import { openai } from "../llm/client.js";
 import { generateEmbedding } from "../llm/embeddings.js";
+import { INTERVIEW_SCAN_SYSTEM_PROMPT } from "../llm/prompts/interview-scan.js";
+import { INTERVIEW_SLOW_LANE_SYSTEM_PROMPT } from "../llm/prompts/interview-slow-lane.js";
+import { SLOW_LANE_ACTIONS_PROMPT } from "../llm/prompts/slow-lane-actions.js";
 import { SLOW_LANE_SYSTEM_PROMPT } from "../llm/prompts/slow-lane-system.js";
 import { type Action, extractActions } from "../llm/slow-lane.js";
 import { notifyUser } from "../notifications/notifier.js";
@@ -352,9 +368,41 @@ async function processJob(): Promise<void> {
 	const job = await claimJob(WORKER_ID, env.JOB_ORPHAN_TIMEOUT_MS);
 	if (!job) return;
 
-	const { id: jobId, correlationId, sessionId, payload } = job;
-	logger.info({ jobId, correlationId, sessionId }, "Procesando job");
+	const { id: jobId, correlationId, sessionId, type, payload } = job;
+	logger.info({ jobId, correlationId, sessionId, type }, "Procesando job");
 
+	switch (type) {
+		case "interview_scan":
+			await processInterviewScanJob(jobId, correlationId, sessionId);
+			return;
+		case "interview_response":
+			await processInterviewResponseJob(
+				jobId,
+				correlationId,
+				sessionId,
+				payload,
+			);
+			return;
+		case "interview_summary":
+			await processInterviewSummaryJob(
+				jobId,
+				correlationId,
+				sessionId,
+				payload,
+			);
+			return;
+		default:
+			await processNormalJob(jobId, correlationId, sessionId, payload);
+			return;
+	}
+}
+
+async function processNormalJob(
+	jobId: string,
+	correlationId: string,
+	sessionId: string,
+	payload: unknown,
+): Promise<void> {
 	if (sessionId) {
 		sendToSession(sessionId, {
 			version: "1",
@@ -752,6 +800,539 @@ async function processJob(): Promise<void> {
 				"Job reencolado para retry",
 			);
 		}
+	}
+}
+
+async function processInterviewScanJob(
+	jobId: string,
+	correlationId: string,
+	sessionId: string,
+): Promise<void> {
+	logger.info({ jobId, correlationId, sessionId }, "Procesando interview_scan");
+
+	if (sessionId) {
+		sendToSession(sessionId, {
+			version: "1",
+			type: "processing",
+			content: "Analizando tu información...",
+			correlation_id: correlationId,
+		});
+	}
+
+	try {
+		// Barrido completo de BD
+		const [
+			activeObjectives,
+			activeTasks,
+			activeLists,
+			upcomingEvents,
+			activeProjects,
+			activeIdeas,
+		] = await Promise.all([
+			formatActiveObjectives(),
+			formatActiveTasks(),
+			formatActiveLists(),
+			formatUpcomingEvents(),
+			formatActiveProjects(),
+			formatActiveIdeas(),
+		]);
+
+		// Obtener memorias recientes (limitado por config)
+		const recentMemories = await getRecentMemories(
+			env.INTERVIEW_SCAN_MAX_MEMORIES,
+		);
+		const memoriesText =
+			recentMemories.length > 0
+				? recentMemories.map((m) => `- ${m.content}`).join("\n")
+				: "";
+
+		// Construir contexto para el LLM
+		const context = [
+			"## Objetivos activos",
+			activeObjectives || "(ninguno)",
+			"",
+			"## Tareas activas",
+			activeTasks || "(ninguna)",
+			"",
+			"## Listas activas",
+			activeLists || "(ninguna)",
+			"",
+			"## Eventos próximos",
+			upcomingEvents || "(ninguno)",
+			"",
+			"## Proyectos activos",
+			activeProjects || "(ninguno)",
+			"",
+			"## Ideas activas",
+			activeIdeas || "(ninguna)",
+			"",
+			"## Memorias recientes",
+			memoriesText || "(ninguna)",
+		].join("\n");
+
+		// Llamar al LLM para generar plan de interview
+		const completion = await openai.chat.completions.create(
+			{
+				model: env.OPENAI_SLOW_MODEL,
+				messages: [
+					{ role: "system", content: INTERVIEW_SCAN_SYSTEM_PROMPT },
+					{ role: "user", content: context },
+				],
+				response_format: { type: "json_object" },
+				temperature: 0.7,
+			},
+			{ timeout: 30000 },
+		);
+
+		const content = completion.choices[0]?.message?.content;
+		if (!content) {
+			throw new Error("Empty response from LLM");
+		}
+
+		const parsed = JSON.parse(content) as {
+			areas?: Array<{
+				name: string;
+				priority?: "high" | "medium" | "low";
+				questions?: string[];
+			}>;
+			first_question?: string;
+		};
+		const areas: InterviewArea[] = (parsed.areas || []).map((a) => ({
+			name: a.name,
+			priority: a.priority || "medium",
+			plannedQuestions: a.questions || [],
+			askedQuestions: [],
+			status: "pending" as const,
+		}));
+
+		const firstQuestion =
+			parsed.first_question || "Contame un poco sobre vos, ¿a qué te dedicás?";
+
+		// Crear plan
+		const plan: InterviewPlan = {
+			areas,
+			startedAt: new Date(),
+			totalAsked: 0,
+			entitiesCreated: 0,
+		};
+
+		// Actualizar interview state
+		const interviewState = getInterviewStateOrThrow(sessionId);
+		interviewState.plan = plan;
+		interviewState.currentQuestion = firstQuestion;
+
+		// Enviar primera pregunta
+		sendToSession(sessionId, {
+			version: "1",
+			type: "text",
+			content: firstQuestion,
+			correlation_id: correlationId,
+		});
+
+		await addTurn({
+			sessionId,
+			role: "assistant",
+			content: firstQuestion,
+		});
+
+		sendToSession(sessionId, {
+			version: "1",
+			type: "audio_end",
+			correlation_id: correlationId,
+		});
+
+		await completeJob(jobId, { plan, firstQuestion });
+		logger.info(
+			{ jobId, correlationId, areasCount: areas.length },
+			"Interview scan completado",
+		);
+	} catch (error) {
+		logger.error({ error, jobId, correlationId }, "Error en interview_scan");
+		const retryResult = await retryJob(jobId, {
+			error: "INTERVIEW_SCAN_ERROR",
+			message: error instanceof Error ? error.message : String(error),
+		});
+		if (!retryResult.retried) {
+			sendToSession(sessionId, {
+				version: "1",
+				type: "text",
+				content:
+					"Tuve un problema para analizar tu información. ¿Querés intentar de nuevo?",
+				correlation_id: correlationId,
+			});
+			sendToSession(sessionId, {
+				version: "1",
+				type: "audio_end",
+				correlation_id: correlationId,
+			});
+		}
+	}
+}
+
+async function processInterviewResponseJob(
+	jobId: string,
+	correlationId: string,
+	sessionId: string,
+	payload: unknown,
+): Promise<void> {
+	logger.info(
+		{ jobId, correlationId, sessionId },
+		"Procesando interview_response",
+	);
+
+	if (sessionId) {
+		sendToSession(sessionId, {
+			version: "1",
+			type: "processing",
+			content: "Procesando tu respuesta...",
+			correlation_id: correlationId,
+		});
+	}
+
+	try {
+		const jobPayload = (payload as Record<string, unknown>) ?? {};
+		const userResponse = (jobPayload.transcribed_text as string) ?? "";
+		const currentQuestion = (jobPayload.current_question as string) ?? "";
+		const interviewHistory =
+			(jobPayload.interview_history as InterviewExchange[]) ?? [];
+		const interviewPlan = (jobPayload.interview_plan as InterviewPlan) ?? null;
+
+		// Obtener contexto adicional de BD (similar a processNormalJob)
+		const [
+			activeObjectives,
+			activeTasks,
+			activeLists,
+			upcomingEvents,
+			activeProjects,
+			activeIdeas,
+		] = await Promise.all([
+			formatActiveObjectives(),
+			formatActiveTasks(),
+			formatActiveLists(),
+			formatUpcomingEvents(),
+			formatActiveProjects(),
+			formatActiveIdeas(),
+		]);
+
+		// Construir contexto para el LLM
+		const context = [
+			"## Respuesta del usuario",
+			userResponse,
+			"",
+			"## Pregunta anterior",
+			currentQuestion,
+			"",
+			"## Plan de interview actual",
+			interviewPlan ? formatInterviewPlanForScan(interviewPlan) : "(sin plan)",
+			"",
+			"## Historial de interview",
+			interviewHistory.length > 0
+				? interviewHistory
+						.map((h) => `P: ${h.question}\nR: ${h.answer}`)
+						.join("\n\n")
+				: "(vacío)",
+			"",
+			"## Objetivos activos",
+			activeObjectives || "(ninguno)",
+			"",
+			"## Tareas activas",
+			activeTasks || "(ninguna)",
+			"",
+			"## Listas activas",
+			activeLists || "(ninguna)",
+			"",
+			"## Eventos próximos",
+			upcomingEvents || "(ninguno)",
+			"",
+			"## Proyectos activos",
+			activeProjects || "(ninguno)",
+			"",
+			"## Ideas activas",
+			activeIdeas || "(ninguna)",
+			"",
+			"## Fecha y hora actual",
+			formatCurrentTime(),
+		].join("\n");
+
+		// Llamar al LLM para procesar respuesta y generar siguiente pregunta
+		const completion = await openai.chat.completions.create(
+			{
+				model: env.OPENAI_SLOW_MODEL,
+				messages: [
+					{ role: "system", content: INTERVIEW_SLOW_LANE_SYSTEM_PROMPT },
+					{ role: "system", content: SLOW_LANE_ACTIONS_PROMPT },
+					{ role: "user", content: context },
+				],
+				response_format: { type: "json_object" },
+				temperature: 0.7,
+			},
+			{ timeout: 30000 },
+		);
+
+		const content = completion.choices[0]?.message?.content;
+		if (!content) {
+			throw new Error("Empty response from LLM");
+		}
+
+		const parsed = JSON.parse(content);
+		const actions: Action[] = parsed.actions || [];
+		const nextQuestion = parsed.next_question as string;
+		const planUpdate = parsed.plan_update as
+			| {
+					areas?: Array<{
+						name: string;
+						status: "pending" | "exploring" | "covered";
+					}>;
+					new_questions?: Array<{ area: string; question: string }>;
+			  }
+			| undefined;
+
+		// Ejecutar acciones CRUD
+		const actionResults: ActionResult[] = [];
+		const failedIndices = new Set<number>();
+
+		for (const [i, actionDef] of actions.entries()) {
+			if (
+				actionDef.depends_on !== undefined &&
+				failedIndices.has(actionDef.depends_on)
+			) {
+				actionResults.push({
+					ok: false,
+					action: actionDef.action,
+					correlationId,
+					payload: {
+						error: "PREVIOUS_ACTION_FAILED",
+						message: "Una acción anterior falló; esta no se ejecutó",
+					},
+				});
+				failedIndices.add(i);
+				continue;
+			}
+
+			const handler = getHandler(actionDef.action);
+			if (!handler) {
+				actionResults.push({
+					ok: false,
+					action: actionDef.action,
+					correlationId,
+					payload: {
+						error: "UNKNOWN_ACTION",
+						message: `Acción desconocida: ${actionDef.action}`,
+					},
+				});
+				failedIndices.add(i);
+				continue;
+			}
+
+			try {
+				const resolvedPayload =
+					actionDef.depends_on !== undefined
+						? resolveUuidPlaceholder(
+								actionDef.payload,
+								actionDef.depends_on,
+								actionResults,
+								actions,
+							)
+						: actionDef.payload;
+				const result = await handler(resolvedPayload, correlationId);
+				actionResults.push(result);
+				if (!result.ok) {
+					failedIndices.add(i);
+				}
+				// Contar entidades creadas
+				if (
+					result.ok &&
+					[
+						"create_task",
+						"create_event",
+						"create_objective",
+						"create_project",
+						"create_idea",
+						"create_list",
+					].includes(actionDef.action)
+				) {
+					const interviewState = getInterviewStateOrThrow(sessionId);
+					incrementEntitiesCreated(interviewState);
+				}
+			} catch (error) {
+				logger.error(
+					{ error, jobId, action: actionDef.action },
+					"Handler error",
+				);
+				actionResults.push({
+					ok: false,
+					action: actionDef.action,
+					correlationId,
+					payload: {
+						error: "INTERNAL_ERROR",
+						message: "Error interno al ejecutar la acción",
+					},
+				});
+				failedIndices.add(i);
+			}
+		}
+
+		// Enviar action_results
+		for (const result of actionResults) {
+			const wsMsg: Record<string, unknown> = {
+				version: "1",
+				type: "action_result",
+				ok: result.ok,
+				action: result.action,
+				correlation_id: result.correlationId,
+				payload: result.payload,
+			};
+			await notifyUser(sessionId, wsMsg, {
+				title: result.ok ? "Acción completada" : "Error",
+				body: formatActionResponse(result.action, result.ok, result.payload),
+			});
+		}
+
+		// Actualizar plan si hay plan_update
+		if (planUpdate && interviewPlan) {
+			const interviewState = getInterviewStateOrThrow(sessionId);
+			if (planUpdate.areas) {
+				for (const areaUpdate of planUpdate.areas) {
+					const area = interviewState.plan?.areas.find(
+						(a) => a.name === areaUpdate.name,
+					);
+					if (area) {
+						area.status = areaUpdate.status;
+					}
+				}
+			}
+			if (planUpdate.new_questions) {
+				for (const q of planUpdate.new_questions) {
+					const area = interviewState.plan?.areas.find(
+						(a) => a.name === q.area,
+					);
+					if (area) {
+						area.plannedQuestions.push(q.question);
+					}
+				}
+			}
+		}
+
+		// Registrar exchange en historial
+		const interviewState = getInterviewStateOrThrow(sessionId);
+		addExchange(interviewState, {
+			question: currentQuestion,
+			answer: userResponse,
+			actionsTaken: actionResults.filter((r) => r.ok).map((r) => r.action),
+		});
+		incrementQuestionsAsked(interviewState);
+
+		// Enviar siguiente pregunta
+		if (nextQuestion) {
+			interviewState.currentQuestion = nextQuestion;
+			sendToSession(sessionId, {
+				version: "1",
+				type: "text",
+				content: nextQuestion,
+				correlation_id: correlationId,
+			});
+			await addTurn({
+				sessionId,
+				role: "assistant",
+				content: nextQuestion,
+			});
+		}
+
+		sendToSession(sessionId, {
+			version: "1",
+			type: "audio_end",
+			correlation_id: correlationId,
+		});
+
+		await completeJob(jobId, { actions: actionResults, nextQuestion });
+		logger.info(
+			{ jobId, correlationId, actionCount: actions.length },
+			"Interview response completado",
+		);
+	} catch (error) {
+		logger.error(
+			{ error, jobId, correlationId },
+			"Error en interview_response",
+		);
+		const retryResult = await retryJob(jobId, {
+			error: "INTERVIEW_RESPONSE_ERROR",
+			message: error instanceof Error ? error.message : String(error),
+		});
+		if (!retryResult.retried) {
+			sendToSession(sessionId, {
+				version: "1",
+				type: "text",
+				content:
+					"Tuve un problema para procesar tu respuesta. ¿Podés repetirla?",
+				correlation_id: correlationId,
+			});
+			sendToSession(sessionId, {
+				version: "1",
+				type: "audio_end",
+				correlation_id: correlationId,
+			});
+		}
+	}
+}
+
+async function processInterviewSummaryJob(
+	jobId: string,
+	correlationId: string,
+	sessionId: string,
+	payload: unknown,
+): Promise<void> {
+	logger.info(
+		{ jobId, correlationId, sessionId },
+		"Procesando interview_summary",
+	);
+
+	try {
+		const jobPayload = (payload as Record<string, unknown>) ?? {};
+		const history = (jobPayload.history as InterviewExchange[]) ?? [];
+		const summary = (jobPayload.summary as {
+			questions_asked: number;
+			areas_covered: string[];
+			entities_created: number;
+		}) ?? { questions_asked: 0, areas_covered: [], entities_created: 0 };
+
+		// Generar memoria resumen
+		if (history.length > 0) {
+			const summaryContent = [
+				`Resumen de interview: ${summary.questions_asked} preguntas realizadas`,
+				`Áreas cubiertas: ${summary.areas_covered.join(", ")}`,
+				`Entidades creadas: ${summary.entities_created}`,
+				"",
+				"Intercambios:",
+				...history.map((h) => `- P: ${h.question}\n  R: ${h.answer}`),
+			].join("\n");
+
+			await createMemory({
+				content: summaryContent,
+				metadata: {
+					interaction_type: "interview_summary",
+					questions_asked: summary.questions_asked,
+					areas_covered: summary.areas_covered,
+					entities_created: summary.entities_created,
+				},
+			});
+
+			logger.info(
+				{ jobId, correlationId, historyLength: history.length },
+				"Memoria de interview creada",
+			);
+		}
+
+		// Actualizar Quick Memory
+		const { initializeQuickMemory } = (await import(
+			"./action-handlers.js"
+		)) as { initializeQuickMemory: () => Promise<void> };
+		await initializeQuickMemory();
+
+		await completeJob(jobId, { summary });
+		logger.info({ jobId, correlationId }, "Interview summary completado");
+	} catch (error) {
+		logger.error({ error, jobId, correlationId }, "Error en interview_summary");
+		await completeJob(jobId, { error: "INTERVIEW_SUMMARY_ERROR" });
 	}
 }
 

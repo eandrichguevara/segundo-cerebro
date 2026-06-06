@@ -18,17 +18,16 @@ class AuthMessage extends WsMessage {
   final String token;
   final String? audioFormat;
 
-  AuthMessage({this.id, required this.token, this.audioFormat})
-      : super('auth');
+  AuthMessage({this.id, required this.token, this.audioFormat}) : super('auth');
 
   @override
   Map<String, dynamic> toJson() => {
-        'version': version,
-        if (id != null) 'id': id,
-        'type': type,
-        'token': token,
-        if (audioFormat != null) 'audio_format': audioFormat,
-      };
+    'version': version,
+    if (id != null) 'id': id,
+    'type': type,
+    'token': token,
+    if (audioFormat != null) 'audio_format': audioFormat,
+  };
 }
 
 class AudioChunkMessage extends WsMessage {
@@ -39,11 +38,11 @@ class AudioChunkMessage extends WsMessage {
 
   @override
   Map<String, dynamic> toJson() => {
-        'version': version,
-        if (id != null) 'id': id,
-        'type': type,
-        'data': data,
-      };
+    'version': version,
+    if (id != null) 'id': id,
+    'type': type,
+    'data': data,
+  };
 }
 
 class AudioEndMessage extends WsMessage {
@@ -52,11 +51,7 @@ class AudioEndMessage extends WsMessage {
   AudioEndMessage({required this.id}) : super('audio_end');
 
   @override
-  Map<String, dynamic> toJson() => {
-        'version': version,
-        'id': id,
-        'type': type,
-      };
+  Map<String, dynamic> toJson() => {'version': version, 'id': id, 'type': type};
 }
 
 class RegisterFcmTokenMessage extends WsMessage {
@@ -65,16 +60,42 @@ class RegisterFcmTokenMessage extends WsMessage {
   final String? platform;
 
   RegisterFcmTokenMessage({this.id, required this.token, this.platform})
-      : super('register_fcm_token');
+    : super('register_fcm_token');
 
   @override
   Map<String, dynamic> toJson() => {
-        'version': version,
-        if (id != null) 'id': id,
-        'type': type,
-        'token': token,
-        if (platform != null) 'platform': platform,
-      };
+    'version': version,
+    if (id != null) 'id': id,
+    'type': type,
+    'token': token,
+    if (platform != null) 'platform': platform,
+  };
+}
+
+class StartInterviewMessage extends WsMessage {
+  final String? id;
+
+  StartInterviewMessage({this.id}) : super('start_interview');
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'version': version,
+    if (id != null) 'id': id,
+    'type': type,
+  };
+}
+
+class StopInterviewMessage extends WsMessage {
+  final String? id;
+
+  StopInterviewMessage({this.id}) : super('stop_interview');
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'version': version,
+    if (id != null) 'id': id,
+    'type': type,
+  };
 }
 
 // ─── Server → Client ───
@@ -91,10 +112,10 @@ class AuthOkMessage extends WsMessage {
   }) : super('auth_ok');
 
   factory AuthOkMessage.fromJson(Map<String, dynamic> json) => AuthOkMessage(
-        sessionId: json['session_id'] as String,
-        audioFormat: json['audio_format'] as String,
-        correlationId: json['correlation_id'] as String?,
-      );
+    sessionId: json['session_id'] as String,
+    audioFormat: json['audio_format'] as String,
+    correlationId: json['correlation_id'] as String?,
+  );
 
   @override
   Map<String, dynamic> toJson() => throw UnimplementedError();
@@ -107,9 +128,9 @@ class TextMessage extends WsMessage {
   TextMessage({required this.content, this.correlationId}) : super('text');
 
   factory TextMessage.fromJson(Map<String, dynamic> json) => TextMessage(
-        content: json['content'] as String,
-        correlationId: json['correlation_id'] as String?,
-      );
+    content: json['content'] as String,
+    correlationId: json['correlation_id'] as String?,
+  );
 
   @override
   Map<String, dynamic> toJson() => throw UnimplementedError();
@@ -120,7 +141,7 @@ class AudioChunkResponse extends WsMessage {
   final String? correlationId;
 
   AudioChunkResponse({required this.data, this.correlationId})
-      : super('audio_chunk');
+    : super('audio_chunk');
 
   factory AudioChunkResponse.fromJson(Map<String, dynamic> json) =>
       AudioChunkResponse(
@@ -138,9 +159,7 @@ class AudioEndResponse extends WsMessage {
   AudioEndResponse({this.correlationId}) : super('audio_end');
 
   factory AudioEndResponse.fromJson(Map<String, dynamic> json) =>
-      AudioEndResponse(
-        correlationId: json['correlation_id'] as String?,
-      );
+      AudioEndResponse(correlationId: json['correlation_id'] as String?);
 
   @override
   Map<String, dynamic> toJson() => throw UnimplementedError();
@@ -198,17 +217,14 @@ class ErrorMessage extends WsMessage {
   final String message;
   final String? correlationId;
 
-  ErrorMessage({
-    required this.code,
-    required this.message,
-    this.correlationId,
-  }) : super('error');
+  ErrorMessage({required this.code, required this.message, this.correlationId})
+    : super('error');
 
   factory ErrorMessage.fromJson(Map<String, dynamic> json) => ErrorMessage(
-         code: json['code'] as String,
-         message: json['message'] as String,
-         correlationId: json['correlation_id'] as String?,
-       );
+    code: json['code'] as String,
+    message: json['message'] as String,
+    correlationId: json['correlation_id'] as String?,
+  );
 
   @override
   Map<String, dynamic> toJson() => throw UnimplementedError();
@@ -219,7 +235,7 @@ class TranscriptionMessage extends WsMessage {
   final String? correlationId;
 
   TranscriptionMessage({required this.content, this.correlationId})
-      : super('transcription');
+    : super('transcription');
 
   factory TranscriptionMessage.fromJson(Map<String, dynamic> json) =>
       TranscriptionMessage(
@@ -236,14 +252,12 @@ class DisplayMessage extends WsMessage {
   final String? correlationId;
 
   DisplayMessage({required this.entities, this.correlationId})
-      : super('display');
+    : super('display');
 
-  factory DisplayMessage.fromJson(Map<String, dynamic> json) =>
-      DisplayMessage(
-        entities: (json['entities'] as List<dynamic>)
-            .cast<Map<String, dynamic>>(),
-        correlationId: json['correlation_id'] as String?,
-      );
+  factory DisplayMessage.fromJson(Map<String, dynamic> json) => DisplayMessage(
+    entities: (json['entities'] as List<dynamic>).cast<Map<String, dynamic>>(),
+    correlationId: json['correlation_id'] as String?,
+  );
 
   @override
   Map<String, dynamic> toJson() => throw UnimplementedError();
@@ -254,7 +268,7 @@ class ProcessingMessage extends WsMessage {
   final String? correlationId;
 
   ProcessingMessage({required this.content, this.correlationId})
-      : super('processing');
+    : super('processing');
 
   factory ProcessingMessage.fromJson(Map<String, dynamic> json) =>
       ProcessingMessage(
@@ -270,7 +284,7 @@ class NotificationRegisteredMessage extends WsMessage {
   final String? correlationId;
 
   NotificationRegisteredMessage({this.correlationId})
-      : super('notification_registered');
+    : super('notification_registered');
 
   factory NotificationRegisteredMessage.fromJson(Map<String, dynamic> json) =>
       NotificationRegisteredMessage(
@@ -279,6 +293,56 @@ class NotificationRegisteredMessage extends WsMessage {
 
   @override
   Map<String, dynamic> toJson() => throw UnimplementedError();
+}
+
+class InterviewStartedMessage extends WsMessage {
+  final String? correlationId;
+
+  InterviewStartedMessage({this.correlationId}) : super('interview_started');
+
+  factory InterviewStartedMessage.fromJson(Map<String, dynamic> json) =>
+      InterviewStartedMessage(correlationId: json['correlation_id'] as String?);
+
+  @override
+  Map<String, dynamic> toJson() => throw UnimplementedError();
+}
+
+class InterviewEndedMessage extends WsMessage {
+  final InterviewSummary summary;
+  final String? correlationId;
+
+  InterviewEndedMessage({required this.summary, this.correlationId})
+    : super('interview_ended');
+
+  factory InterviewEndedMessage.fromJson(Map<String, dynamic> json) =>
+      InterviewEndedMessage(
+        summary: InterviewSummary.fromJson(
+          json['summary'] as Map<String, dynamic>,
+        ),
+        correlationId: json['correlation_id'] as String?,
+      );
+
+  @override
+  Map<String, dynamic> toJson() => throw UnimplementedError();
+}
+
+class InterviewSummary {
+  final int questionsAsked;
+  final List<String> areasCovered;
+  final int entitiesCreated;
+
+  InterviewSummary({
+    required this.questionsAsked,
+    required this.areasCovered,
+    required this.entitiesCreated,
+  });
+
+  factory InterviewSummary.fromJson(Map<String, dynamic> json) =>
+      InterviewSummary(
+        questionsAsked: json['questions_asked'] as int,
+        areasCovered: (json['areas_covered'] as List<dynamic>).cast<String>(),
+        entitiesCreated: json['entities_created'] as int,
+      );
 }
 
 // ─── Parser ───
@@ -308,6 +372,10 @@ WsMessage parseServerMessage(Map<String, dynamic> json) {
       return ProcessingMessage.fromJson(json);
     case 'notification_registered':
       return NotificationRegisteredMessage.fromJson(json);
+    case 'interview_started':
+      return InterviewStartedMessage.fromJson(json);
+    case 'interview_ended':
+      return InterviewEndedMessage.fromJson(json);
     default:
       throw FormatException('Unknown message type: $type');
   }

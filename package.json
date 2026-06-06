@@ -1,6 +1,6 @@
 {
   "name": "segundo-cerebro",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "private": true,
   "description": "Segundo Cerebro - Asistente virtual de voz",
   "scripts": {

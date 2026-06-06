@@ -23,9 +23,11 @@ class WebSocketService {
   final _textController = StreamController<String>.broadcast();
   final _errorController = StreamController<String>.broadcast();
   final _processingController = StreamController<bool>.broadcast();
-  final _displayController =
-      StreamController<List<DisplayEntity>>.broadcast();
+  final _displayController = StreamController<List<DisplayEntity>>.broadcast();
   final _transcriptionController = StreamController<String>.broadcast();
+  final _interviewStartedController = StreamController<void>.broadcast();
+  final _interviewEndedController =
+      StreamController<InterviewSummary>.broadcast();
 
   Stream<WsConnectionState> get stateStream => _stateController.stream;
   Stream<WsMessage> get messageStream => _messageController.stream;
@@ -34,6 +36,9 @@ class WebSocketService {
   Stream<bool> get processingStream => _processingController.stream;
   Stream<List<DisplayEntity>> get displayStream => _displayController.stream;
   Stream<String> get transcriptionStream => _transcriptionController.stream;
+  Stream<void> get interviewStartedStream => _interviewStartedController.stream;
+  Stream<InterviewSummary> get interviewEndedStream =>
+      _interviewEndedController.stream;
 
   WsConnectionState _state = WsConnectionState.disconnected;
   WsConnectionState get state => _state;
@@ -75,12 +80,7 @@ class WebSocketService {
 
   void _authenticate() {
     _setState(WsConnectionState.authenticating);
-    sendMessage(
-      AuthMessage(
-        token: AppConfig.authToken,
-        audioFormat: 'mp3',
-      ),
-    );
+    sendMessage(AuthMessage(token: AppConfig.authToken, audioFormat: 'mp3'));
   }
 
   void _onMessage(dynamic message) {
@@ -132,10 +132,18 @@ class WebSocketService {
         break;
       case NotificationRegisteredMessage():
         break;
+      case InterviewStartedMessage():
+        _interviewStartedController.add(null);
+        break;
+      case InterviewEndedMessage msg:
+        _interviewEndedController.add(msg.summary);
+        break;
       case AuthMessage():
       case AudioChunkMessage():
       case AudioEndMessage():
       case RegisterFcmTokenMessage():
+      case StartInterviewMessage():
+      case StopInterviewMessage():
         break;
     }
   }
@@ -199,5 +207,7 @@ class WebSocketService {
     _processingController.close();
     _displayController.close();
     _transcriptionController.close();
+    _interviewStartedController.close();
+    _interviewEndedController.close();
   }
 }

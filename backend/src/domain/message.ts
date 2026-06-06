@@ -27,17 +27,33 @@ export interface RegisterFcmTokenMessage {
 	id?: string;
 }
 
+export interface StartInterviewMessage {
+	version: string;
+	type: "start_interview";
+	id?: string;
+}
+
+export interface StopInterviewMessage {
+	version: string;
+	type: "stop_interview";
+	id?: string;
+}
+
 export type ClientMessage =
 	| AuthMessage
 	| AudioChunkMessage
 	| AudioEndMessage
-	| RegisterFcmTokenMessage;
+	| RegisterFcmTokenMessage
+	| StartInterviewMessage
+	| StopInterviewMessage;
 
 export const VALID_CLIENT_TYPES = new Set<string>([
 	"auth",
 	"audio_chunk",
 	"audio_end",
 	"register_fcm_token",
+	"start_interview",
+	"stop_interview",
 ]);
 
 export function parseClientMessage(raw: unknown): ClientMessage | null {
@@ -101,6 +117,23 @@ export interface ServerError {
 	correlation_id?: string;
 }
 
+export interface ServerInterviewStarted {
+	version: "1";
+	type: "interview_started";
+	correlation_id?: string;
+}
+
+export interface ServerInterviewEnded {
+	version: "1";
+	type: "interview_ended";
+	summary: {
+		questions_asked: number;
+		areas_covered: string[];
+		entities_created: number;
+	};
+	correlation_id?: string;
+}
+
 export type ServerMessage =
 	| ServerAuthOk
 	| ServerAudioChunk
@@ -108,7 +141,9 @@ export type ServerMessage =
 	| ServerText
 	| ServerActionResult
 	| ServerNotification
-	| ServerError;
+	| ServerError
+	| ServerInterviewStarted
+	| ServerInterviewEnded;
 
 export type ActionResultPayload = Record<string, unknown>;
 

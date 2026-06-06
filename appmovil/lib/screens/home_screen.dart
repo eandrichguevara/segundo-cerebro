@@ -7,9 +7,11 @@ import 'package:uuid/uuid.dart';
 import '../config/version.dart';
 import '../models/chat_item.dart';
 import '../models/display_entity.dart';
+import '../models/ws_message.dart';
 import '../services/audio_service.dart';
 import '../services/websocket_service.dart';
 import '../widgets/display_cards.dart';
+import '../widgets/interview_button.dart';
 
 const _kHistoryKey = 'chat_history';
 const _kMaxHistoryItems = 200;
@@ -35,6 +37,7 @@ class _HomeScreenState extends State<HomeScreen>
   AudioServiceState _audioState = AudioServiceState.idle;
   String? _lastError;
   final List<ChatItem> _history = [];
+  bool _isInterviewMode = false;
 
   final _scrollController = ScrollController();
   final _uuid = const Uuid();
@@ -94,11 +97,9 @@ class _HomeScreenState extends State<HomeScreen>
       if (mounted) {
         _hideTyping();
         setState(() {
-          _history.add(TextChatItem(
-            id: _uuid.v4(),
-            content: text,
-            isUser: true,
-          ));
+          _history.add(
+            TextChatItem(id: _uuid.v4(), content: text, isUser: true),
+          );
           _trimHistory();
         });
         _saveHistory();
@@ -109,11 +110,9 @@ class _HomeScreenState extends State<HomeScreen>
     widget.wsService.textStream.listen((text) {
       if (mounted) {
         if (text == 'Buscando...') return;
-        _enqueueMessage(TextChatItem(
-          id: _uuid.v4(),
-          content: text,
-          isUser: false,
-        ));
+        _enqueueMessage(
+          TextChatItem(id: _uuid.v4(), content: text, isUser: false),
+        );
       }
     });
 
@@ -142,6 +141,28 @@ class _HomeScreenState extends State<HomeScreen>
       }
     });
 
+    widget.wsService.interviewStartedStream.listen((_) {
+      if (mounted) {
+        setState(() => _isInterviewMode = true);
+      }
+    });
+
+    widget.wsService.interviewEndedStream.listen((summary) {
+      if (mounted) {
+        setState(() => _isInterviewMode = false);
+        if (summary.questionsAsked > 0) {
+          _enqueueMessage(
+            TextChatItem(
+              id: _uuid.v4(),
+              content:
+                  '📊 Resumen: ${summary.questionsAsked} preguntas, ${summary.areasCovered.length} áreas cubiertas, ${summary.entitiesCreated} entidades creadas.',
+              isUser: false,
+            ),
+          );
+        }
+      }
+    });
+
     widget.wsService.connect();
   }
 
@@ -158,10 +179,11 @@ class _HomeScreenState extends State<HomeScreen>
     if (json != null) {
       try {
         final list = jsonDecode(json) as List<dynamic>;
-        final items = list
-            .map((e) => _chatItemFromJson(e as Map<String, dynamic>))
-            .whereType<ChatItem>()
-            .toList();
+        final items =
+            list
+                .map((e) => _chatItemFromJson(e as Map<String, dynamic>))
+                .whereType<ChatItem>()
+                .toList();
         if (mounted) {
           setState(() {
             _history.addAll(items);
@@ -185,48 +207,49 @@ class _HomeScreenState extends State<HomeScreen>
   Map<String, dynamic> _chatItemToJson(ChatItem item) {
     return switch (item) {
       TextChatItem i => {
-          'type': 'text',
-          'id': i.id,
-          'content': i.content,
-          'isUser': i.isUser,
-          'timestamp': i.timestamp.toIso8601String(),
-        },
+        'type': 'text',
+        'id': i.id,
+        'content': i.content,
+        'isUser': i.isUser,
+        'timestamp': i.timestamp.toIso8601String(),
+      },
       DisplayChatItem i => {
-          'type': 'display',
-          'id': i.id,
-          'entities': i.entities.map((e) => e.toJson()).toList(),
-          'timestamp': i.timestamp.toIso8601String(),
-        },
+        'type': 'display',
+        'id': i.id,
+        'entities': i.entities.map((e) => e.toJson()).toList(),
+        'timestamp': i.timestamp.toIso8601String(),
+      },
       ProcessingChatItem i => {
-          'type': 'processing',
-          'id': i.id,
-          'content': i.content,
-          'timestamp': i.timestamp.toIso8601String(),
-        },
+        'type': 'processing',
+        'id': i.id,
+        'content': i.content,
+        'timestamp': i.timestamp.toIso8601String(),
+      },
     };
   }
 
   ChatItem? _chatItemFromJson(Map<String, dynamic> json) {
     try {
       final id = json['id'] as String;
-      final ts = json['timestamp'] != null
-          ? DateTime.parse(json['timestamp'] as String)
-          : null;
+      final ts =
+          json['timestamp'] != null
+              ? DateTime.parse(json['timestamp'] as String)
+              : null;
       return switch (json['type'] as String) {
         'text' => TextChatItem(
-            id: id,
-            content: json['content'] as String,
-            isUser: json['isUser'] as bool? ?? false,
-            timestamp: ts,
-          ),
+          id: id,
+          content: json['content'] as String,
+          isUser: json['isUser'] as bool? ?? false,
+          timestamp: ts,
+        ),
         'display' => DisplayChatItem(
-            id: id,
-            entities: (json['entities'] as List<dynamic>)
-                .map((e) =>
-                    DisplayEntity.fromJson(e as Map<String, dynamic>))
-                .toList(),
-            timestamp: ts,
-          ),
+          id: id,
+          entities:
+              (json['entities'] as List<dynamic>)
+                  .map((e) => DisplayEntity.fromJson(e as Map<String, dynamic>))
+                  .toList(),
+          timestamp: ts,
+        ),
         _ => null,
       };
     } catch (_) {
@@ -255,8 +278,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _clearHistory() {
     _cancelQueue();
     setState(() => _history.clear());
-    SharedPreferences.getInstance()
-        .then((prefs) => prefs.remove(_kHistoryKey));
+    SharedPreferences.getInstance().then((prefs) => prefs.remove(_kHistoryKey));
   }
 
   void _cancelQueue() {
@@ -339,8 +361,7 @@ class _HomeScreenState extends State<HomeScreen>
       WsConnectionState.disconnected => 'Desconectado',
       WsConnectionState.connecting ||
       WsConnectionState.connected ||
-      WsConnectionState.authenticating =>
-        'Conectando...',
+      WsConnectionState.authenticating => 'Conectando...',
       WsConnectionState.authenticated => 'Conectado',
     };
   }
@@ -350,8 +371,7 @@ class _HomeScreenState extends State<HomeScreen>
       WsConnectionState.disconnected => Colors.grey,
       WsConnectionState.connecting ||
       WsConnectionState.connected ||
-      WsConnectionState.authenticating =>
-        Colors.orange,
+      WsConnectionState.authenticating => Colors.orange,
       WsConnectionState.authenticated => Colors.green,
     };
   }
@@ -388,9 +408,12 @@ class _HomeScreenState extends State<HomeScreen>
           ),
           const SizedBox(width: 8),
           Text(
-            _statusText,
+            _isInterviewMode ? 'Modo preguntas' : _statusText,
             style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.7),
+              color:
+                  _isInterviewMode
+                      ? const Color(0xFF00BCD4)
+                      : Colors.white.withValues(alpha: 0.7),
               fontSize: 13,
               fontWeight: FontWeight.w500,
             ),
@@ -444,7 +467,8 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildChatList() {
     if (!_historyLoaded) {
       return const Center(
-          child: CircularProgressIndicator(color: Colors.white24));
+        child: CircularProgressIndicator(color: Colors.white24),
+      );
     }
 
     if (_history.isEmpty) {
@@ -492,14 +516,13 @@ class _HomeScreenState extends State<HomeScreen>
         child: switch (item) {
           TextChatItem i => _buildTextBubble(i.content, i.isUser),
           DisplayChatItem i => Align(
-              alignment: Alignment.centerLeft,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: i.entities
-                    .map((e) => DisplayEntityCard(entity: e))
-                    .toList(),
-              ),
+            alignment: Alignment.centerLeft,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children:
+                  i.entities.map((e) => DisplayEntityCard(entity: e)).toList(),
             ),
+          ),
           ProcessingChatItem _ => _buildProcessingIndicator(),
         },
       ),
@@ -515,16 +538,15 @@ class _HomeScreenState extends State<HomeScreen>
         ),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: isUser ? _userBubbleColor : Colors.white.withValues(alpha: 0.08),
+          color:
+              isUser ? _userBubbleColor : Colors.white.withValues(alpha: 0.08),
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(18),
             topRight: const Radius.circular(18),
-            bottomLeft: isUser
-                ? const Radius.circular(18)
-                : const Radius.circular(4),
-            bottomRight: isUser
-                ? const Radius.circular(4)
-                : const Radius.circular(18),
+            bottomLeft:
+                isUser ? const Radius.circular(18) : const Radius.circular(4),
+            bottomRight:
+                isUser ? const Radius.circular(4) : const Radius.circular(18),
           ),
         ),
         child: Text(
@@ -576,13 +598,19 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildBottomBar() {
-    final color = _connectionState == WsConnectionState.authenticated
-        ? _audioState == AudioServiceState.recording
-            ? Colors.red
-            : _userBubbleColor
-        : Colors.grey;
+    final color =
+        _connectionState == WsConnectionState.authenticated
+            ? _audioState == AudioServiceState.recording
+                ? Colors.red
+                : _userBubbleColor
+            : Colors.grey;
 
-    final isActive = _connectionState == WsConnectionState.authenticated &&
+    final isActive =
+        _connectionState == WsConnectionState.authenticated &&
+        _audioState == AudioServiceState.idle;
+
+    final isInterviewEnabled =
+        _connectionState == WsConnectionState.authenticated &&
         _audioState == AudioServiceState.idle;
 
     return Container(
@@ -595,12 +623,29 @@ class _HomeScreenState extends State<HomeScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
+          InterviewButton(
+            isActive: _isInterviewMode,
+            isEnabled: isInterviewEnabled,
+            onTap: () {
+              if (_isInterviewMode) {
+                widget.wsService.sendMessage(
+                  StopInterviewMessage(id: _uuid.v4()),
+                );
+              } else {
+                widget.wsService.sendMessage(
+                  StartInterviewMessage(id: _uuid.v4()),
+                );
+              }
+            },
+          ),
+          const SizedBox(width: 24),
           GestureDetector(
-            onTap: isActive
-                ? () => widget.audioService.startRecording()
-                : (_audioState == AudioServiceState.recording
-                    ? () => widget.audioService.stopRecording()
-                    : null),
+            onTap:
+                isActive
+                    ? () => widget.audioService.startRecording()
+                    : (_audioState == AudioServiceState.recording
+                        ? () => widget.audioService.stopRecording()
+                        : null),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               width: 56,
@@ -625,25 +670,24 @@ class _HomeScreenState extends State<HomeScreen>
               ),
               child: switch (_audioState) {
                 AudioServiceState.recording => const Icon(
-                    Icons.stop,
-                    color: Colors.white,
-                    size: 28,
-                  ),
+                  Icons.stop,
+                  color: Colors.white,
+                  size: 28,
+                ),
                 AudioServiceState.processing => AnimatedBuilder(
-                    animation: _thinkingController,
-                    builder: (context, _) {
-                      final scale =
-                          1.0 + (_thinkingController.value * 0.08);
-                      return Transform.scale(
-                        scale: scale,
-                        child: const Icon(
-                          Icons.auto_awesome,
-                          color: Colors.white,
-                          size: 28,
-                        ),
-                      );
-                    },
-                  ),
+                  animation: _thinkingController,
+                  builder: (context, _) {
+                    final scale = 1.0 + (_thinkingController.value * 0.08);
+                    return Transform.scale(
+                      scale: scale,
+                      child: const Icon(
+                        Icons.auto_awesome,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                    );
+                  },
+                ),
                 _ => const Icon(Icons.mic, color: Colors.white, size: 28),
               },
             ),

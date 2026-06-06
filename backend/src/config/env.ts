@@ -39,6 +39,8 @@ const envSchema = z.object({
 		.min(30_000)
 		.default(300_000),
 	FCM_SERVICE_ACCOUNT: z.string().min(1),
+	INTERVIEW_MAX_QUESTIONS: z.coerce.number().int().positive().default(30),
+	INTERVIEW_SCAN_MAX_MEMORIES: z.coerce.number().int().positive().default(50),
 });
 
 const parsed = envSchema.safeParse(process.env);
