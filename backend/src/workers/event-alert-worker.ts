@@ -3,6 +3,7 @@ import {
 	formatDateInTimezone,
 	formatTimeInTimezone,
 } from "../config/current-time.js";
+import { env } from "../config/env.js";
 import { logger } from "../config/logger.js";
 import * as deviceRepository from "../db/repositories/device-repository.js";
 import * as entityLinkRepository from "../db/repositories/entity-link-repository.js";
@@ -23,8 +24,9 @@ import { sendNotification } from "../notifications/fcm.js";
 
 const POLL_INTERVAL_MS = 60_000;
 const MAX_LIST_ITEMS = 15;
+const REFRESH_INTERVAL_MS = env.EVENT_NOTIFICATION_REFRESH_MS;
 
-const sentNotifications = new Set<string>();
+const notificationTimestamps = new Map<string, number>();
 
 type LinkedEntityData = {
 	id: string;
@@ -346,21 +348,40 @@ async function pollActiveEvents(): Promise<void> {
 
 			activeEventIds.add(event.id);
 
-			if (sentNotifications.has(event.id)) continue;
+			const lastSent = notificationTimestamps.get(event.id);
+
+			if (lastSent !== undefined) {
+				// Already notified before — check if refresh is due
+				if (now.getTime() - lastSent < REFRESH_INTERVAL_MS) {
+					continue; // Not due for refresh yet
+				}
+				logger.debug(
+					{ eventId: event.id, eventTitle: event.title },
+					"Event notification refresh due",
+				);
+			}
 
 			const links = await entityLinkRepository.getLinksFor("event", event.id);
 			await sendEventNotification(event, links);
-			sentNotifications.add(event.id);
-			logger.info(
-				{ eventId: event.id, eventTitle: event.title },
-				"Event notification sent",
-			);
+			notificationTimestamps.set(event.id, now.getTime());
+
+			if (lastSent === undefined) {
+				logger.info(
+					{ eventId: event.id, eventTitle: event.title },
+					"Event notification sent",
+				);
+			} else {
+				logger.debug(
+					{ eventId: event.id, eventTitle: event.title },
+					"Event notification refreshed",
+				);
+			}
 		}
 
-		for (const eventId of sentNotifications) {
+		for (const [eventId] of notificationTimestamps) {
 			if (!activeEventIds.has(eventId)) {
 				await sendEventCancelNotification(eventId);
-				sentNotifications.delete(eventId);
+				notificationTimestamps.delete(eventId);
 				logger.info({ eventId }, "Event notification cancelled");
 			}
 		}
@@ -380,7 +401,7 @@ export function startEventAlertWorker(): () => void {
 
 	return () => {
 		clearInterval(timer);
-		sentNotifications.clear();
+		notificationTimestamps.clear();
 		logger.info("Event alert worker stopped");
 	};
 }

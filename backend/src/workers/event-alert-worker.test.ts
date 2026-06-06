@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../config/env.js", () => ({
-	env: { TIMEZONE: "America/Santiago" },
+	env: {
+		TIMEZONE: "America/Santiago",
+		EVENT_NOTIFICATION_REFRESH_MS: 300_000,
+	},
 }));
 
 vi.mock("../config/logger.js", () => ({
@@ -79,6 +82,7 @@ describe("event-alert-worker", () => {
 	afterEach(() => {
 		vi.clearAllMocks();
 		vi.resetModules();
+		vi.useRealTimers();
 	});
 
 	it("sends notification for an active event", async () => {
@@ -650,5 +654,296 @@ describe("event-alert-worker", () => {
 				category: "trabajo",
 			}),
 		);
+	});
+
+	it("refreshes notification after refresh interval elapses", async () => {
+		vi.useFakeTimers();
+
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+
+		// First poll: sends initial notification
+		await pollActiveEventsOnce();
+
+		const { sendNotification } = await import("../notifications/fcm.js");
+		expect(vi.mocked(sendNotification)).toHaveBeenCalledTimes(1);
+
+		// Advance time past the refresh interval (300000ms)
+		vi.advanceTimersByTime(300_001);
+
+		// Second poll: should refresh due to elapsed interval
+		await pollActiveEventsOnce();
+		expect(vi.mocked(sendNotification)).toHaveBeenCalledTimes(2);
+
+		vi.useRealTimers();
+	});
+
+	it("refreshes with updated linked entities", async () => {
+		vi.useFakeTimers();
+
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { getLinksFor } = await import(
+			"../db/repositories/entity-link-repository.js"
+		);
+		vi.mocked(getLinksFor).mockResolvedValue([
+			{
+				id: "link-1",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "list",
+				targetId: "list-1",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+		]);
+
+		const { getListById, getItems } = await import(
+			"../db/repositories/list-repository.js"
+		);
+		vi.mocked(getListById).mockResolvedValue({
+			id: "list-1",
+			title: "Compras",
+			description: null,
+			status: "active",
+			type: "shopping",
+		} as never);
+
+		// First poll: items mostly unchecked
+		vi.mocked(getItems).mockReturnValue([
+			{ content: "leche", checked: false, quantity: undefined },
+			{ content: "huevos", checked: false, quantity: undefined },
+		]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { sendNotification } = await import("../notifications/fcm.js");
+		expect(vi.mocked(sendNotification)).toHaveBeenCalledTimes(1);
+
+		// Verify first payload shows (0/2)
+		const firstPayload = vi.mocked(sendNotification).mock.calls[0][1] as Record<
+			string,
+			string
+		>;
+		expect(firstPayload.body).toContain("📋 Compras (0/2)");
+
+		// Update linked entity state between refreshes
+		vi.mocked(getItems).mockReturnValue([
+			{ content: "leche", checked: true, quantity: undefined },
+			{ content: "huevos", checked: true, quantity: undefined },
+		]);
+
+		// Advance past refresh interval
+		vi.advanceTimersByTime(300_001);
+
+		// Second poll: should refresh with updated data
+		await pollActiveEventsOnce();
+		expect(vi.mocked(sendNotification)).toHaveBeenCalledTimes(2);
+
+		const secondPayload = vi.mocked(sendNotification).mock
+			.calls[1][1] as Record<string, string>;
+		expect(secondPayload.body).toContain("📋 Compras (2/2)");
+
+		vi.useRealTimers();
+	});
+
+	it("sends notifications for multiple active events independently", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent({ id: "evt-1" }) as never,
+			makeEvent({ id: "evt-2", title: "Reunión semanal" }) as never,
+		]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { sendNotification } = await import("../notifications/fcm.js");
+		// Two events × one token = 2 FCM calls
+		expect(vi.mocked(sendNotification)).toHaveBeenCalledTimes(2);
+
+		// Each event gets its own notification title
+		expect(vi.mocked(sendNotification)).toHaveBeenCalledWith(
+			"token-1",
+			expect.objectContaining({ title: "📅 Trabajar en proyecto X" }),
+		);
+		expect(vi.mocked(sendNotification)).toHaveBeenCalledWith(
+			"token-1",
+			expect.objectContaining({ title: "📅 Reunión semanal" }),
+		);
+	});
+
+	it("handles dynamic event lifecycle across polls", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent({ id: "evt-1" }) as never,
+		]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { sendNotification } = await import("../notifications/fcm.js");
+		expect(vi.mocked(sendNotification)).toHaveBeenCalledTimes(1);
+
+		// Second poll: new event appears, old event still active
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent({ id: "evt-1" }) as never,
+			makeEvent({ id: "evt-2", title: "Nuevo evento" }) as never,
+		]);
+		await pollActiveEventsOnce();
+		// evt-1 already sent (no refresh due), evt-2 new → sends
+		expect(vi.mocked(sendNotification)).toHaveBeenCalledTimes(2);
+
+		// Third poll: old event disappears, evt-2 remains
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent({ id: "evt-2", title: "Nuevo evento" }) as never,
+		]);
+		await pollActiveEventsOnce();
+		// evt-1 should be cancelled, evt-2 already sent (no refresh due)
+		const cancelCalls = vi
+			.mocked(sendNotification)
+			.mock.calls.filter(
+				(c) => (c[1] as Record<string, unknown>).sendNotification === false,
+			);
+		expect(cancelCalls).toHaveLength(1);
+		const cancelData = cancelCalls[0][1] as Record<string, unknown>;
+		expect(cancelData.data).toEqual(
+			expect.objectContaining({
+				type: "event_notification_cancel",
+				event_id: "evt-1",
+			}),
+		);
+
+		// Fourth poll: no activity at all
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([]);
+		await pollActiveEventsOnce();
+		// evt-2 should also be cancelled
+		const cancelCallsAfter = vi
+			.mocked(sendNotification)
+			.mock.calls.filter(
+				(c) => (c[1] as Record<string, unknown>).sendNotification === false,
+			);
+		expect(cancelCallsAfter).toHaveLength(2);
+	});
+
+	it("handles FCM token failure on refresh and removes invalid token", async () => {
+		vi.useFakeTimers();
+
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+
+		// First poll: token valid → succeeds
+		const { sendNotification } = await import("../notifications/fcm.js");
+		vi.mocked(sendNotification).mockResolvedValue({
+			ok: true,
+			value: undefined,
+		});
+		await pollActiveEventsOnce();
+		expect(vi.mocked(sendNotification)).toHaveBeenCalledTimes(1);
+
+		// Second poll (refresh): token invalid → fails
+		vi.mocked(sendNotification).mockResolvedValue({
+			ok: false,
+			error: "INVALID_TOKEN",
+		});
+		vi.advanceTimersByTime(300_001);
+		await pollActiveEventsOnce();
+
+		// Failed token should be removed
+		const { removeToken } = await import(
+			"../db/repositories/device-repository.js"
+		);
+		expect(vi.mocked(removeToken)).toHaveBeenCalledWith("token-1");
+
+		vi.useRealTimers();
+	});
+
+	it("recovers from getLinksFor error without corrupting timestamp state", async () => {
+		vi.useFakeTimers();
+
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { getLinksFor } = await import(
+			"../db/repositories/entity-link-repository.js"
+		);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+
+		// First poll: getLinksFor succeeds
+		vi.mocked(getLinksFor).mockResolvedValue([]);
+		await pollActiveEventsOnce();
+
+		const { sendNotification } = await import("../notifications/fcm.js");
+		expect(vi.mocked(sendNotification)).toHaveBeenCalledTimes(1);
+
+		// Second poll (refresh): getLinksFor throws
+		vi.mocked(getLinksFor).mockRejectedValue(new Error("DB connection lost"));
+		vi.advanceTimersByTime(300_001);
+		await pollActiveEventsOnce();
+
+		// Notification should NOT have been sent again (error was caught)
+		expect(vi.mocked(sendNotification)).toHaveBeenCalledTimes(1);
+
+		// Error should be logged
+		const { logger } = await import("../config/logger.js");
+		expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
+			expect.objectContaining({ error: expect.any(Error) }),
+			"Error polling active events",
+		);
+
+		// Third poll (another refresh): getLinksFor succeeds again → should send
+		vi.mocked(getLinksFor).mockResolvedValue([]);
+		vi.advanceTimersByTime(300_001);
+		await pollActiveEventsOnce();
+
+		// Notification sent again after recovery
+		expect(vi.mocked(sendNotification)).toHaveBeenCalledTimes(2);
+
+		vi.useRealTimers();
+	});
+
+	it("does not send notification for an event that already ended", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent({
+				// endTime in the past: still returned by DB but not active
+				endTime: new Date(Date.now() - 60_000),
+			}) as never,
+		]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { sendNotification } = await import("../notifications/fcm.js");
+		expect(vi.mocked(sendNotification)).not.toHaveBeenCalled();
 	});
 });

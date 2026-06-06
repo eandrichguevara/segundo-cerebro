@@ -33,6 +33,11 @@ const envSchema = z.object({
 	ID_CACHE_SIZE: z.coerce.number().int().positive().default(1000),
 	ID_CACHE_TTL_MS: z.coerce.number().int().positive().default(300_000),
 	TIMEZONE: z.string().default("America/Santiago"),
+	EVENT_NOTIFICATION_REFRESH_MS: z.coerce
+		.number()
+		.int()
+		.min(30_000)
+		.default(300_000),
 	FCM_SERVICE_ACCOUNT: z.string().min(1),
 });
 

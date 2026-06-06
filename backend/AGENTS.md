@@ -109,7 +109,7 @@ Tabla `jobs` para la cola de vía lenta:
 **Workers**:
 
 - `slow-lane-processor.ts`: consume jobs de la tabla `jobs` con `SELECT ... FOR UPDATE SKIP LOCKED`
-- `event-alert-worker.ts`: worker independiente (no job queue) que cada 60s consulta eventos activos y envía notificaciones FCM push con entidades enlazadas. Cache en memoria para evitar reenvíos.
+- `event-alert-worker.ts`: worker independiente (no job queue) que cada 60s consulta eventos activos y envía notificaciones FCM push con entidades enlazadas. Cache en memoria con timestamps para refresco periódico (`EVENT_NOTIFICATION_REFRESH_MS`, default 5 min, mínimo 30s).
 
 Ambos corren en el mismo proceso Fastify como `setInterval`. Escalar a proceso separado requiere actualizar este archivo.
 
