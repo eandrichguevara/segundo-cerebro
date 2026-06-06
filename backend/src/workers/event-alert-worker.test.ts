@@ -159,6 +159,55 @@ describe("event-alert-worker", () => {
 		);
 	});
 
+	it("includes list summary in notification body", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { getLinksFor } = await import(
+			"../db/repositories/entity-link-repository.js"
+		);
+		vi.mocked(getLinksFor).mockResolvedValue([
+			{
+				id: "link-1",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "list",
+				targetId: "list-1",
+				relation: "part_of",
+				note: null,
+				createdAt: new Date(),
+			},
+		]);
+
+		const { getListById, getItems } = await import(
+			"../db/repositories/list-repository.js"
+		);
+		vi.mocked(getListById).mockResolvedValue({
+			id: "list-1",
+			title: "Compra supermercado",
+			description: "Cosas del día",
+			status: "active",
+			type: "shopping",
+		} as never);
+		vi.mocked(getItems).mockReturnValue([
+			{ content: "2 kg arroz", checked: false, quantity: "2 kg" },
+			{ content: "pan", checked: true, quantity: undefined },
+		]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { sendNotification } = await import("../notifications/fcm.js");
+		const call = vi.mocked(sendNotification).mock.calls[0];
+		const payload = call[1] as Record<string, string>;
+
+		expect(payload.body).toContain("📋 Compra supermercado (1/2)");
+	});
+
 	it("includes linked list with items in payload", async () => {
 		const { getActiveEventsInProgress } = await import(
 			"../db/repositories/event-repository.js"
@@ -283,6 +332,294 @@ describe("event-alert-worker", () => {
 				deadline: "2026-06-05T00:00:00.000Z",
 			}),
 		);
+	});
+
+	it("includes multiple linked lists in notification body", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { getLinksFor } = await import(
+			"../db/repositories/entity-link-repository.js"
+		);
+		vi.mocked(getLinksFor).mockResolvedValue([
+			{
+				id: "link-1",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "list",
+				targetId: "list-1",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+			{
+				id: "link-2",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "list",
+				targetId: "list-2",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+		]);
+
+		const { getListById, getItems } = await import(
+			"../db/repositories/list-repository.js"
+		);
+		vi.mocked(getListById)
+			.mockResolvedValueOnce({
+				id: "list-1",
+				title: "Compras",
+				description: null,
+				status: "active",
+				type: "shopping",
+			} as never)
+			.mockResolvedValueOnce({
+				id: "list-2",
+				title: "Pendientes",
+				description: null,
+				status: "active",
+				type: "general",
+			} as never);
+		vi.mocked(getItems)
+			.mockReturnValueOnce([
+				{ content: "leche", checked: true, quantity: undefined },
+				{ content: "huevos", checked: false, quantity: undefined },
+			])
+			.mockReturnValueOnce([
+				{ content: "pagar cuentas", checked: false, quantity: undefined },
+			]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { sendNotification } = await import("../notifications/fcm.js");
+		const call = vi.mocked(sendNotification).mock.calls[0];
+		const payload = call[1] as Record<string, string>;
+
+		expect(payload.body).toContain("📋 Compras (1/2)");
+		expect(payload.body).toContain("📋 Pendientes (0/1)");
+	});
+
+	it("includes empty list summary in notification body", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { getLinksFor } = await import(
+			"../db/repositories/entity-link-repository.js"
+		);
+		vi.mocked(getLinksFor).mockResolvedValue([
+			{
+				id: "link-1",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "list",
+				targetId: "list-1",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+		]);
+
+		const { getListById, getItems } = await import(
+			"../db/repositories/list-repository.js"
+		);
+		vi.mocked(getListById).mockResolvedValue({
+			id: "list-1",
+			title: "Vacía",
+			description: null,
+			status: "active",
+			type: "general",
+		} as never);
+		vi.mocked(getItems).mockReturnValue([]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { sendNotification } = await import("../notifications/fcm.js");
+		const call = vi.mocked(sendNotification).mock.calls[0];
+		const payload = call[1] as Record<string, string>;
+
+		expect(payload.body).toContain("📋 Vacía (0/0)");
+	});
+
+	it("truncates list items in data payload but shows full count in body", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { getLinksFor } = await import(
+			"../db/repositories/entity-link-repository.js"
+		);
+		vi.mocked(getLinksFor).mockResolvedValue([
+			{
+				id: "link-1",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "list",
+				targetId: "list-1",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+		]);
+
+		const { getListById, getItems } = await import(
+			"../db/repositories/list-repository.js"
+		);
+		vi.mocked(getListById).mockResolvedValue({
+			id: "list-1",
+			title: "Lista grande",
+			description: null,
+			status: "active",
+			type: "general",
+		} as never);
+
+		const items = Array.from({ length: 20 }, (_, i) => ({
+			content: `Item ${i + 1}`,
+			checked: i < 12,
+			quantity: undefined,
+		}));
+		vi.mocked(getItems).mockReturnValue(items);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { sendNotification } = await import("../notifications/fcm.js");
+		const call = vi.mocked(sendNotification).mock.calls[0];
+		const payload = call[1] as Record<string, string>;
+
+		// Body shows full count (12 checked out of 20)
+		expect(payload.body).toContain("📋 Lista grande (12/20)");
+
+		// Data payload has truncated items (15 + 1 truncation marker)
+		const p = call[1] as Record<string, unknown>;
+		const dataPayload = p.data as Record<string, string>;
+		const links = JSON.parse(dataPayload.links) as Array<
+			Record<string, unknown>
+		>;
+		expect(links[0].items).toHaveLength(16);
+		expect((links[0].items as Array<Record<string, unknown>>)[15]).toEqual(
+			expect.objectContaining({ content: "... y 5 más" }),
+		);
+	});
+
+	it("excludes non-list linked entities from notification body", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { getLinksFor } = await import(
+			"../db/repositories/entity-link-repository.js"
+		);
+		vi.mocked(getLinksFor).mockResolvedValue([
+			{
+				id: "link-1",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "list",
+				targetId: "list-1",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+			{
+				id: "link-2",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "task",
+				targetId: "task-1",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+		]);
+
+		const { getListById, getItems } = await import(
+			"../db/repositories/list-repository.js"
+		);
+		vi.mocked(getListById).mockResolvedValue({
+			id: "list-1",
+			title: "Compras",
+			description: null,
+			status: "active",
+			type: "shopping",
+		} as never);
+		vi.mocked(getItems).mockReturnValue([
+			{ content: "pan", checked: false, quantity: undefined },
+		]);
+
+		const { getTaskById } = await import(
+			"../db/repositories/task-repository.js"
+		);
+		vi.mocked(getTaskById).mockResolvedValue({
+			id: "task-1",
+			title: "Revisar PRs",
+			description: "PRs del backend",
+			status: "in_progress",
+			priority: "high",
+			dueDate: new Date("2026-06-05T00:00:00Z"),
+		} as never);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { sendNotification } = await import("../notifications/fcm.js");
+		const call = vi.mocked(sendNotification).mock.calls[0];
+		const payload = call[1] as Record<string, string>;
+
+		// Body has list summary but NOT task info
+		expect(payload.body).toContain("📋 Compras (0/1)");
+		expect(payload.body).not.toContain("Revisar PRs");
+		expect(payload.body).not.toContain("🔴");
+
+		// Data payload has both entities
+		const dataPayload = (call[1] as Record<string, unknown>).data as Record<
+			string,
+			string
+		>;
+		const links = JSON.parse(dataPayload.links) as Array<
+			Record<string, unknown>
+		>;
+		expect(links).toHaveLength(2);
+	});
+
+	it("sends no notification when no FCM tokens are registered", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { getAllTokens } = await import(
+			"../db/repositories/device-repository.js"
+		);
+		vi.mocked(getAllTokens).mockResolvedValue([]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { sendNotification } = await import("../notifications/fcm.js");
+		expect(vi.mocked(sendNotification)).not.toHaveBeenCalled();
+
+		// Restore default implementation for subsequent tests
+		vi.mocked(getAllTokens).mockResolvedValue(["token-1"]);
 	});
 
 	it("includes event description in payload", async () => {

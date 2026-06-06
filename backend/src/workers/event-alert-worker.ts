@@ -282,6 +282,14 @@ async function sendEventNotification(
 	if (event.location) bodySummary.push(`📍 ${event.location}`);
 	if (event.category) bodySummary.push(`#${event.category}`);
 
+	for (const ent of linkedEntities) {
+		if (ent.type === "list" && ent.items) {
+			const checked = ent.items.filter((i) => i.checked).length;
+			const total = ent.items.length;
+			bodySummary.push(`📋 ${ent.title} (${checked}/${total})`);
+		}
+	}
+
 	const tokens = await deviceRepository.getAllTokens();
 	if (tokens.length === 0) {
 		logger.warn("No FCM tokens registered for event notification");
