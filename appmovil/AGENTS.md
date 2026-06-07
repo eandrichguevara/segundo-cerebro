@@ -46,6 +46,26 @@ La app recibe mensajes WS `display` con entidades estructuradas y las renderiza 
 
 **Streams**: `WebSocketService` expone `displayStream` para entidades estructuradas.
 
+### Modo Interview (v0.3.0+)
+
+Botón especial para activar modo de preguntas interactivo donde Toph hace preguntas al usuario.
+
+**Widget** (`appmovil/lib/widgets/interview_button.dart`):
+- Botón circular teal (Color 0xFF00BCD4) con ícono `Icons.forum`
+- Toggle: tap para activar/desactivar
+- Estado activo: glow animado + ícono cambia a `Icons.stop`
+- Ubicación: al lado del botón de voz en `_buildBottomBar()`
+
+**Estado**: `_isInterviewMode` en `HomeScreen`. Se activa al recibir `InterviewStartedMessage`, se desactiva al recibir `InterviewEndedMessage`.
+
+**Mensajes WS**:
+- Cliente → Servidor: `StartInterviewMessage`, `StopInterviewMessage`
+- Servidor → Cliente: `InterviewStartedMessage`, `InterviewEndedMessage` (con `InterviewSummary`)
+
+**Streams**: `WebSocketService` expone `interviewStartedStream` y `interviewEndedStream`.
+
+**Indicador visual**: status bar muestra "Modo preguntas" en teal cuando está activo.
+
 ### Ciclo de vida del audio
 
 - `AudioService` con estados: `idle` → `recording` → `processing`

@@ -631,7 +631,9 @@ class _HomeScreenState extends State<HomeScreen>
                 widget.wsService.sendMessage(
                   StopInterviewMessage(id: _uuid.v4()),
                 );
-              } else {
+              } else if (!_isInterviewMode) {
+                // Guard contra taps rápidos: si el estado ya cambió entre
+                // la lectura de _isInterviewMode y este momento, no enviamos
                 widget.wsService.sendMessage(
                   StartInterviewMessage(id: _uuid.v4()),
                 );

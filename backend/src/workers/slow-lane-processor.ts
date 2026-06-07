@@ -43,7 +43,7 @@ import { SLOW_LANE_ACTIONS_PROMPT } from "../llm/prompts/slow-lane-actions.js";
 import { SLOW_LANE_SYSTEM_PROMPT } from "../llm/prompts/slow-lane-system.js";
 import { type Action, extractActions } from "../llm/slow-lane.js";
 import { notifyUser } from "../notifications/notifier.js";
-import { getHandler } from "./action-handlers.js";
+import { getHandler, initializeQuickMemory } from "./action-handlers.js";
 import type { ActionResult } from "./action-handlers.js";
 import { formatActionResponse } from "./format-response.js";
 
@@ -828,6 +828,7 @@ async function processInterviewScanJob(
 			upcomingEvents,
 			activeProjects,
 			activeIdeas,
+			conversationTurns,
 		] = await Promise.all([
 			formatActiveObjectives(),
 			formatActiveTasks(),
@@ -835,6 +836,7 @@ async function processInterviewScanJob(
 			formatUpcomingEvents(),
 			formatActiveProjects(),
 			formatActiveIdeas(),
+			formatConversationTurns(sessionId),
 		]);
 
 		// Obtener memorias recientes (limitado por config)
@@ -868,6 +870,9 @@ async function processInterviewScanJob(
 			"",
 			"## Memorias recientes",
 			memoriesText || "(ninguna)",
+			"",
+			"## Conversación reciente",
+			conversationTurns || "(ninguna)",
 		].join("\n");
 
 		// Llamar al LLM para generar plan de interview
@@ -880,6 +885,7 @@ async function processInterviewScanJob(
 				],
 				response_format: { type: "json_object" },
 				temperature: 0.7,
+				max_completion_tokens: env.SLOW_LANE_MAX_TOKENS,
 			},
 			{ timeout: 30000 },
 		);
@@ -897,13 +903,27 @@ async function processInterviewScanJob(
 			}>;
 			first_question?: string;
 		};
-		const areas: InterviewArea[] = (parsed.areas || []).map((a) => ({
-			name: a.name,
-			priority: a.priority || "medium",
-			plannedQuestions: a.questions || [],
-			askedQuestions: [],
-			status: "pending" as const,
-		}));
+
+		// Limitar número de áreas y preguntas según config
+		const rawAreas = parsed.areas || [];
+		const maxQuestions = env.INTERVIEW_MAX_QUESTIONS;
+		let questionCount = 0;
+		const areas: InterviewArea[] = [];
+		for (const a of rawAreas) {
+			if (questionCount >= maxQuestions) break;
+			const questions = (a.questions || []).slice(
+				0,
+				maxQuestions - questionCount,
+			);
+			questionCount += questions.length;
+			areas.push({
+				name: a.name,
+				priority: a.priority || "medium",
+				plannedQuestions: questions,
+				askedQuestions: [],
+				status: "pending" as const,
+			});
+		}
 
 		const firstQuestion =
 			parsed.first_question || "Contame un poco sobre vos, ¿a qué te dedicás?";
@@ -1005,6 +1025,7 @@ async function processInterviewResponseJob(
 			upcomingEvents,
 			activeProjects,
 			activeIdeas,
+			recentMemories,
 		] = await Promise.all([
 			formatActiveObjectives(),
 			formatActiveTasks(),
@@ -1012,7 +1033,12 @@ async function processInterviewResponseJob(
 			formatUpcomingEvents(),
 			formatActiveProjects(),
 			formatActiveIdeas(),
+			formatRecentMemories(userResponse),
 		]);
+
+		// Cachear reference al interview state para evitar búsquedas repetidas
+		const interviewState = getInterviewStateOrThrow(sessionId);
+		const currentPlan = interviewState.plan ?? interviewPlan;
 
 		// Construir contexto para el LLM
 		const context = [
@@ -1023,7 +1049,7 @@ async function processInterviewResponseJob(
 			currentQuestion,
 			"",
 			"## Plan de interview actual",
-			interviewPlan ? formatInterviewPlanForScan(interviewPlan) : "(sin plan)",
+			currentPlan ? formatInterviewPlanForScan(currentPlan) : "(sin plan)",
 			"",
 			"## Historial de interview",
 			interviewHistory.length > 0
@@ -1050,6 +1076,9 @@ async function processInterviewResponseJob(
 			"## Ideas activas",
 			activeIdeas || "(ninguna)",
 			"",
+			"## Memorias relevantes",
+			recentMemories || "(ninguna)",
+			"",
 			"## Fecha y hora actual",
 			formatCurrentTime(),
 		].join("\n");
@@ -1065,6 +1094,7 @@ async function processInterviewResponseJob(
 				],
 				response_format: { type: "json_object" },
 				temperature: 0.7,
+				max_completion_tokens: env.SLOW_LANE_MAX_TOKENS,
 			},
 			{ timeout: 30000 },
 		);
@@ -1074,18 +1104,20 @@ async function processInterviewResponseJob(
 			throw new Error("Empty response from LLM");
 		}
 
-		const parsed = JSON.parse(content);
+		const parsed = JSON.parse(content) as {
+			actions?: Action[];
+			next_question?: string;
+			plan_update?: {
+				areas?: Array<{
+					name: string;
+					status: "pending" | "exploring" | "covered";
+				}>;
+				new_questions?: Array<{ area: string; question: string }>;
+			};
+		};
 		const actions: Action[] = parsed.actions || [];
-		const nextQuestion = parsed.next_question as string;
-		const planUpdate = parsed.plan_update as
-			| {
-					areas?: Array<{
-						name: string;
-						status: "pending" | "exploring" | "covered";
-					}>;
-					new_questions?: Array<{ area: string; question: string }>;
-			  }
-			| undefined;
+		const nextQuestion = parsed.next_question ?? "";
+		const planUpdate = parsed.plan_update;
 
 		// Ejecutar acciones CRUD
 		const actionResults: ActionResult[] = [];
@@ -1151,7 +1183,6 @@ async function processInterviewResponseJob(
 						"create_list",
 					].includes(actionDef.action)
 				) {
-					const interviewState = getInterviewStateOrThrow(sessionId);
 					incrementEntitiesCreated(interviewState);
 				}
 			} catch (error) {
@@ -1189,8 +1220,7 @@ async function processInterviewResponseJob(
 		}
 
 		// Actualizar plan si hay plan_update
-		if (planUpdate && interviewPlan) {
-			const interviewState = getInterviewStateOrThrow(sessionId);
+		if (planUpdate && currentPlan) {
 			if (planUpdate.areas) {
 				for (const areaUpdate of planUpdate.areas) {
 					const area = interviewState.plan?.areas.find(
@@ -1214,13 +1244,22 @@ async function processInterviewResponseJob(
 		}
 
 		// Registrar exchange en historial
-		const interviewState = getInterviewStateOrThrow(sessionId);
 		addExchange(interviewState, {
 			question: currentQuestion,
 			answer: userResponse,
 			actionsTaken: actionResults.filter((r) => r.ok).map((r) => r.action),
 		});
 		incrementQuestionsAsked(interviewState);
+
+		// Registrar pregunta en el área activa
+		if (interviewState.plan && currentQuestion) {
+			const activeArea = interviewState.plan.areas.find(
+				(a) => a.status !== "covered",
+			);
+			if (activeArea) {
+				activeArea.askedQuestions.push(currentQuestion);
+			}
+		}
 
 		// Enviar siguiente pregunta
 		if (nextQuestion) {
@@ -1323,9 +1362,6 @@ async function processInterviewSummaryJob(
 		}
 
 		// Actualizar Quick Memory
-		const { initializeQuickMemory } = (await import(
-			"./action-handlers.js"
-		)) as { initializeQuickMemory: () => Promise<void> };
 		await initializeQuickMemory();
 
 		await completeJob(jobId, { summary });

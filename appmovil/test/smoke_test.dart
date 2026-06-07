@@ -39,6 +39,55 @@ void main() {
       expect(json['id'], 'test-id');
     });
 
+    test('StartInterviewMessage serializes correctly', () {
+      final msg = StartInterviewMessage(id: 'interview-uuid');
+      final json = jsonDecode(msg.toJsonString()) as Map<String, dynamic>;
+      expect(json['version'], '1');
+      expect(json['type'], 'start_interview');
+      expect(json['id'], 'interview-uuid');
+    });
+
+    test('StopInterviewMessage serializes correctly', () {
+      final msg = StopInterviewMessage(id: 'stop-uuid');
+      final json = jsonDecode(msg.toJsonString()) as Map<String, dynamic>;
+      expect(json['version'], '1');
+      expect(json['type'], 'stop_interview');
+      expect(json['id'], 'stop-uuid');
+    });
+
+    test('InterviewStartedMessage deserializes correctly', () {
+      final json = {
+        'version': '1',
+        'type': 'interview_started',
+        'correlation_id': 'corr-int',
+      };
+
+      final msg = parseServerMessage(json);
+      expect(msg, isA<InterviewStartedMessage>());
+      final intMsg = msg as InterviewStartedMessage;
+      expect(intMsg.correlationId, 'corr-int');
+    });
+
+    test('InterviewEndedMessage deserializes correctly', () {
+      final json = {
+        'version': '1',
+        'type': 'interview_ended',
+        'summary': {
+          'questions_asked': 5,
+          'areas_covered': ['Horarios', 'Preferencias'],
+          'entities_created': 2,
+        },
+        'correlation_id': 'corr-end',
+      };
+
+      final msg = parseServerMessage(json);
+      expect(msg, isA<InterviewEndedMessage>());
+      final endMsg = msg as InterviewEndedMessage;
+      expect(endMsg.summary.questionsAsked, 5);
+      expect(endMsg.summary.areasCovered, ['Horarios', 'Preferencias']);
+      expect(endMsg.summary.entitiesCreated, 2);
+    });
+
     test('AuthOkMessage deserializes correctly', () {
       final json = {
         'version': '1',
@@ -165,10 +214,7 @@ void main() {
     });
 
     test('throws on unknown message type', () {
-      final json = {
-        'version': '1',
-        'type': 'unknown_type',
-      };
+      final json = {'version': '1', 'type': 'unknown_type'};
 
       expect(() => parseServerMessage(json), throwsFormatException);
     });
@@ -208,7 +254,8 @@ void main() {
       );
 
       // Verify request serialization
-      final authJson = jsonDecode(authRequest.toJsonString()) as Map<String, dynamic>;
+      final authJson =
+          jsonDecode(authRequest.toJsonString()) as Map<String, dynamic>;
       expect(authJson['type'], 'auth');
       expect(authJson['token'], 'test-token');
 
@@ -226,13 +273,15 @@ void main() {
       final audioChunk = AudioChunkMessage(
         data: base64Encode(Uint8List.fromList([1, 2, 3, 4])),
       );
-      final chunkJson = jsonDecode(audioChunk.toJsonString()) as Map<String, dynamic>;
+      final chunkJson =
+          jsonDecode(audioChunk.toJsonString()) as Map<String, dynamic>;
       expect(chunkJson['type'], 'audio_chunk');
       expect(chunkJson['data'], isNotEmpty);
 
       // Simulate audio end
       final audioEnd = AudioEndMessage(id: 'audio-id-1');
-      final endJson = jsonDecode(audioEnd.toJsonString()) as Map<String, dynamic>;
+      final endJson =
+          jsonDecode(audioEnd.toJsonString()) as Map<String, dynamic>;
       expect(endJson['type'], 'audio_end');
       expect(endJson['id'], 'audio-id-1');
     });

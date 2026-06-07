@@ -4,6 +4,8 @@
 
 Asistente virtual de voz en tiempo real, personal y mono-usuario, que actúa como "Segundo Cerebro" del usuario. Gestiona tareas, objetivos y rutinas replicando la personalidad del usuario.
 
+**Nombre del asistente**: Toph (se pronuncia "tof")
+
 Interfaz **voice-first**, sin dashboards. La app móvil es solo un cliente de voz; toda la lógica vive en el backend.
 
 **Invariantes permanentes:**
@@ -66,6 +68,27 @@ Cliente (Flutter)
 ```
 
 **Event Alert Worker**: worker independiente (no job queue) que cada 60s consulta eventos activos (`start_time <= now AND (end_time IS NULL OR end_time > now)`). Para cada evento activo, resuelve entidades enlazadas (listas, tareas, objetivos) y envía FCM push con `type: "event_notification"`. Cuando el evento termina, envía `type: "event_notification_cancel"` para remover la notificación. Cache en memoria con timestamps para refresco periódico (re-envía cada `EVENT_NOTIFICATION_REFRESH_MS` ms, default 5 min, mínimo 30s) para actualizar entidades enlazadas. Las notificaciones se actualizan in-place en el teléfono (mismo `notificationId`). Las notificaciones son **ongoing** (no descartables) en Android.
+
+### Modo Interview (v0.3.0+)
+
+Modo interactivo donde Toph hace preguntas al usuario para conocerlo mejor y llenar vacíos de información. Activado por botón especial en la app móvil.
+
+**Flujo**:
+1. Usuario pulsa botón interview → cliente envía `start_interview`
+2. Servidor activa estado de interview y encola job `interview_scan`
+3. Worker analiza BD completa y genera plan de preguntas (áreas + prioridades)
+4. Toph hace primera pregunta al usuario
+5. Usuario responde → vía rápida confirma brevemente → vía lenta procesa respuesta (puede crear entidades) + genera siguiente pregunta
+6. Ciclo continúa hasta que usuario pulsa botón de nuevo → `stop_interview`
+7. Worker genera memoria resumen de la sesión
+
+**Tipos de job**: `interview_scan`, `interview_response`, `interview_summary`
+
+**Estado**: `InterviewState` en RAM por sesión (plan, historial, pregunta actual). Se pierde al desconectar.
+
+**Variables de entorno**: `INTERVIEW_MAX_QUESTIONS` (default 30), `INTERVIEW_SCAN_MAX_MEMORIES` (default 50)
+
+**Fallback**: si la vía rápida falla en modo interview, usa prompt especializado `INTERVIEW_FAST_LANE_PROMPT`.
 
 **Fallback**: si la vía rápida falla (timeout/error), envía "Un momento, estoy procesando..." + `audio_end`. La vía lenta responde cuando termine.
 
@@ -177,7 +200,7 @@ No mover carpetas de alto nivel sin instrucción explícita.
 | Fase | Nombre                | Estado                                                                                                                                                        |
 | ---- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1    | **MVP**               | ✅ Completada — WebSocket, STT, doble vía, CRUD tasks/objectives/lists/events/projects/ideas/links, Quick Memory, display estructurado, cola PostgreSQL, FCM. |
-| 2    | **Memoria**           | 🟡 Casi completa — RAG con pgvector y notificaciones proactivas funcionando. Pendiente: consolidación periódica de memorias.                                  |
+| 2    | **Memoria**           | 🟡 Casi completa — RAG con pgvector, notificaciones proactivas y modo interview funcionando. Pendiente: consolidación periódica de memorias.                   |
 | 3    | **Personal avanzado** | ⬜ Pendiente — inferencia de personalidad, métricas de uso, ajuste dinámico de prompts.                                                                       |
 | 4    | **Producción**        | ⬜ Pendiente — Docker/OCI, CI/CD, monitoreo, job queue escalable (Graphile Worker/BullMQ).                                                                    |
 

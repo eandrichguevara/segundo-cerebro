@@ -598,6 +598,11 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 						{ error, correlationId },
 						"Error encolando interview_scan",
 					);
+					sendJson({
+						version: "1",
+						type: "audio_end",
+						correlation_id: correlationId,
+					});
 				}
 			}
 		}
@@ -632,6 +637,36 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
 				"Modo interview desactivado",
 			);
 
+			// Primero limpiar estado local
+			state.interviewState.active = false;
+			state.interviewState.plan = null;
+			state.interviewState.history = [];
+			state.interviewState.currentQuestion = null;
+
+			// Encolar job de resumen antes de responder al cliente
+			if (state.sessionId) {
+				try {
+					await enqueueJob({
+						correlationId,
+						sessionId: state.sessionId,
+						type: "interview_summary",
+						payload: {
+							history,
+							plan,
+							summary,
+							received_at: new Date().toISOString(),
+						},
+					});
+					logger.info({ correlationId }, "Job interview_summary encolado");
+				} catch (error) {
+					logger.error(
+						{ error, correlationId },
+						"Error encolando interview_summary",
+					);
+				}
+			}
+
+			// Luego responder al cliente
 			sendJson({
 				version: "1",
 				type: "interview_ended",

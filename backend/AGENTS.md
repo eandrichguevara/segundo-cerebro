@@ -64,6 +64,8 @@ Formato básico de mensajes. Todos incluyen `"version": "1"`. Los mensajes clien
 { "version": "1", "id": "<uuid-v4>", "type": "audio_end" }
 { "version": "1", "id": "<uuid-v4>", "type": "auth", "token": "<token>", "audio_format": "mp3" }
 { "version": "1", "id": "<uuid-v4>", "type": "register_fcm_token", "token": "<fcm-token>", "platform": "ios|android" }
+{ "version": "1", "id": "<uuid-v4>", "type": "start_interview" }
+{ "version": "1", "id": "<uuid-v4>", "type": "stop_interview" }
 
 // Servidor → Cliente
 { "version": "1", "type": "auth_ok", "session_id": "<uuid-v4>", "audio_format": "mp3", "correlation_id": "<uuid-v4>" }
@@ -74,6 +76,8 @@ Formato básico de mensajes. Todos incluyen `"version": "1"`. Los mensajes clien
 { "version": "1", "type": "action_result", "ok": true, "action": "<action_name>", "correlation_id": "<uuid-v4>", "payload": { ... } }
 { "version": "1", "type": "error", "code": "<code>", "message": "...", "correlation_id": "<uuid-v4>" }
 { "version": "1", "type": "display", "entities": [...], "correlation_id": "<uuid-v4>" }
+{ "version": "1", "type": "interview_started", "correlation_id": "<uuid-v4>" }
+{ "version": "1", "type": "interview_ended", "summary": { "questions_asked": 5, "areas_covered": ["Horarios", "Preferencias"], "entities_created": 2 }, "correlation_id": "<uuid-v4>" }
 ```
 
 **Códigos de error**: `AUTH_FAILED`, `STT_ERROR`, `LLM_TIMEOUT`, `TTS_ERROR`, `RATE_LIMITED`, `INVALID_MESSAGE`, `INTERNAL_ERROR`.
@@ -91,7 +95,7 @@ Tabla `jobs` para la cola de vía lenta:
 | `id`             | UUID PK                   | Identificador único                                                   |
 | `correlation_id` | UUID NOT NULL             | Trazabilidad end-to-end                                               |
 | `session_id`     | UUID NOT NULL             | Sesión WebSocket origen                                               |
-| `type`           | TEXT NOT NULL             | `process_message`                                                     |
+| `type`           | TEXT NOT NULL             | `process_message`, `interview_scan`, `interview_response`, `interview_summary` |
 | `source`         | TEXT NOT NULL             | `websocket`, `scheduled`, `system`                                    |
 | `payload`        | JSONB NOT NULL            | Datos del mensaje (`transcribed_text`, `audio_format`, `received_at`) |
 | `status`         | TEXT NOT NULL             | `pending`, `processing`, `completed`, `failed`                        |

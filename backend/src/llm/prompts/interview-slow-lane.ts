@@ -68,6 +68,7 @@ Respondé con un JSON object con esta estructura:
 6. Si la respuesta del usuario es "no sé" o "no tengo idea", pasá a la siguiente área.
 7. Si la respuesta es muy detallada, podés hacer varias preguntas de seguimiento antes de cambiar de área.
 8. Mantené el tono cálido y directo. No seas complaciente.
+9. Incluí \`update_conversation_topics\` al inicio del array de acciones para actualizar los temas de conversación en Quick Memory.
 
 ## Ejemplos
 

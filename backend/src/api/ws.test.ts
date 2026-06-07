@@ -9,6 +9,8 @@ vi.mock("../config/env.js", () => ({
 		FAST_LANE_TIMEOUT_MS: 5_000,
 		ID_CACHE_SIZE: 1000,
 		ID_CACHE_TTL_MS: 300_000,
+		INTERVIEW_MAX_QUESTIONS: 30,
+		INTERVIEW_SCAN_MAX_MEMORIES: 50,
 	},
 }));
 
@@ -36,6 +38,21 @@ vi.mock("../llm/fast-lane.js", () => ({
 
 vi.mock("../llm/prompts/fast-lane-system.js", () => ({
 	FAST_LANE_SYSTEM_PROMPT: "test prompt",
+}));
+
+vi.mock("../llm/prompts/interview-fast-lane.js", () => ({
+	INTERVIEW_FAST_LANE_PROMPT: "interview prompt",
+}));
+
+vi.mock("../domain/interview.js", () => ({
+	createInterviewState: () => ({
+		active: false,
+		plan: null,
+		history: [],
+		currentQuestion: null,
+	}),
+	resetInterviewState: vi.fn(),
+	formatInterviewContext: () => "## Modo Interview Activo",
 }));
 
 function createMockSocket() {
@@ -459,6 +476,203 @@ describe("WebSocket handler", () => {
 				expect.stringContaining("duplicado"),
 			);
 			expect(vi.mocked(transcribeAudio)).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	describe("modo interview", () => {
+		beforeEach(() => {
+			send({ version: "1", type: "auth", token: "test-token" });
+			mockSocket.send.mockClear();
+			vi.clearAllMocks();
+		});
+
+		it("start_interview activa el modo y encola job interview_scan", async () => {
+			const { enqueueJob } = await import(
+				"../db/repositories/job-repository.js"
+			);
+
+			send({ version: "1", type: "start_interview" });
+			await new Promise((resolve) => setTimeout(resolve, 0));
+
+			const messages = getMessages();
+			const startedMsg = messages.find(
+				(m: unknown) =>
+					(m as Record<string, unknown>).type === "interview_started",
+			);
+			expect(startedMsg).toBeDefined();
+
+			const textMsg = messages.find(
+				(m: unknown) => (m as Record<string, unknown>).type === "text",
+			);
+			expect(textMsg).toBeDefined();
+			expect((textMsg as Record<string, unknown>).content).toContain(
+				"vamos a conocernos mejor",
+			);
+
+			expect(vi.mocked(enqueueJob)).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: "interview_scan",
+				}),
+			);
+		});
+
+		it("start_interview no encola job si ya está activo", async () => {
+			const { enqueueJob } = await import(
+				"../db/repositories/job-repository.js"
+			);
+
+			// First start
+			send({ version: "1", type: "start_interview" });
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			mockSocket.send.mockClear();
+			vi.mocked(enqueueJob).mockClear();
+
+			// Second start (should be ignored)
+			send({ version: "1", type: "start_interview" });
+			await new Promise((resolve) => setTimeout(resolve, 0));
+
+			const messages = getMessages();
+			const startedMsg = messages.find(
+				(m: unknown) =>
+					(m as Record<string, unknown>).type === "interview_started",
+			);
+			expect(startedMsg).toBeUndefined();
+
+			expect(vi.mocked(enqueueJob)).not.toHaveBeenCalled();
+		});
+
+		it("stop_interview desactiva el modo y encola job interview_summary", async () => {
+			const { enqueueJob } = await import(
+				"../db/repositories/job-repository.js"
+			);
+
+			// First start interview
+			send({ version: "1", type: "start_interview" });
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			mockSocket.send.mockClear();
+			vi.mocked(enqueueJob).mockClear();
+
+			// Then stop
+			send({ version: "1", type: "stop_interview" });
+			await new Promise((resolve) => setTimeout(resolve, 0));
+
+			const messages = getMessages();
+			const endedMsg = messages.find(
+				(m: unknown) =>
+					(m as Record<string, unknown>).type === "interview_ended",
+			);
+			expect(endedMsg).toBeDefined();
+			const endedData = endedMsg as Record<string, unknown>;
+			expect(endedData.summary).toBeDefined();
+			expect(
+				(endedData.summary as Record<string, unknown>).questions_asked,
+			).toBe(0);
+
+			expect(vi.mocked(enqueueJob)).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: "interview_summary",
+				}),
+			);
+		});
+
+		it("stop_interview no hace nada si no está activo", async () => {
+			send({ version: "1", type: "stop_interview" });
+			await new Promise((resolve) => setTimeout(resolve, 0));
+
+			const messages = getMessages();
+			const endedMsg = messages.find(
+				(m: unknown) =>
+					(m as Record<string, unknown>).type === "interview_ended",
+			);
+			expect(endedMsg).toBeUndefined();
+		});
+
+		it("audio_end en modo interview usa prompt de interview y encola interview_response", async () => {
+			const { transcribeAudio } = await import("../llm/stt.js");
+			const { getFastResponse } = await import("../llm/fast-lane.js");
+			const { enqueueJob } = await import(
+				"../db/repositories/job-repository.js"
+			);
+
+			vi.mocked(transcribeAudio).mockResolvedValue({
+				ok: true,
+				value: "sí, trabajo de 9 a 6",
+			});
+			vi.mocked(getFastResponse).mockResolvedValue({
+				ok: true,
+				value: ["Ya, anotao."],
+			});
+
+			// Start interview mode
+			send({ version: "1", type: "start_interview" });
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			mockSocket.send.mockClear();
+			vi.mocked(enqueueJob).mockClear();
+
+			// Send audio in interview mode
+			send({
+				version: "1",
+				type: "audio_chunk",
+				data: Buffer.from("fake-pcm-data").toString("base64"),
+			});
+			mockSocket.send.mockClear();
+			send({ version: "1", type: "audio_end" });
+			await new Promise((resolve) => setTimeout(resolve, 0));
+
+			// Fast lane uses interview prompt
+			expect(vi.mocked(getFastResponse)).toHaveBeenCalledWith(
+				"sí, trabajo de 9 a 6",
+				expect.stringContaining("interview prompt"),
+				expect.any(AbortSignal),
+			);
+
+			// Job is interview_response, not process_message
+			expect(vi.mocked(enqueueJob)).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: "interview_response",
+					payload: expect.objectContaining({
+						transcribed_text: "sí, trabajo de 9 a 6",
+					}),
+				}),
+			);
+		});
+
+		it("audio_end en modo normal sigue usando prompt normal y process_message", async () => {
+			const { transcribeAudio } = await import("../llm/stt.js");
+			const { getFastResponse } = await import("../llm/fast-lane.js");
+			const { enqueueJob } = await import(
+				"../db/repositories/job-repository.js"
+			);
+
+			vi.mocked(transcribeAudio).mockResolvedValue({
+				ok: true,
+				value: "hola",
+			});
+			vi.mocked(getFastResponse).mockResolvedValue({
+				ok: true,
+				value: ["hola cómo estás"],
+			});
+
+			send({
+				version: "1",
+				type: "audio_chunk",
+				data: Buffer.from("fake-pcm-data").toString("base64"),
+			});
+			mockSocket.send.mockClear();
+			send({ version: "1", type: "audio_end" });
+			await new Promise((resolve) => setTimeout(resolve, 0));
+
+			// Fast lane uses normal prompt
+			expect(vi.mocked(getFastResponse)).toHaveBeenCalledWith(
+				"hola",
+				expect.stringContaining("test prompt"),
+				expect.any(AbortSignal),
+			);
+
+			// Job is process_message, not interview_response
+			expect(vi.mocked(enqueueJob)).toHaveBeenCalledWith(
+				expect.objectContaining({ type: "process_message" }),
+			);
 		});
 	});
 });

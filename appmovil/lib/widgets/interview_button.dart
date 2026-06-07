@@ -29,6 +29,20 @@ class _InterviewButtonState extends State<InterviewButton>
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     );
+    if (widget.isActive) {
+      _glowController.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void didUpdateWidget(InterviewButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      _glowController.repeat(reverse: true);
+    } else if (!widget.isActive && oldWidget.isActive) {
+      _glowController.stop();
+      _glowController.reset();
+    }
   }
 
   @override
@@ -45,13 +59,6 @@ class _InterviewButtonState extends State<InterviewButton>
                 ? _kInterviewColor
                 : _kInterviewColor.withValues(alpha: 0.6))
             : Colors.grey;
-
-    if (widget.isActive) {
-      _glowController.repeat(reverse: true);
-    } else {
-      _glowController.stop();
-      _glowController.reset();
-    }
 
     return GestureDetector(
       onTap: widget.isEnabled ? widget.onTap : null,

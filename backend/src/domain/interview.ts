@@ -56,7 +56,6 @@ export function addExchange(
 
 export function incrementEntitiesCreated(state: InterviewState): void {
 	if (state.plan) {
-		state.plan.totalAsked++;
 		state.plan.entitiesCreated++;
 	}
 }
@@ -93,7 +92,13 @@ export function formatInterviewContext(state: InterviewState): string {
 		lines.push(`### Intercambios recientes\n${exchanges.join("\n\n")}`);
 	}
 
-	return lines.join("\n\n");
+	const result = lines.join("\n\n");
+	return truncateContext(result, 2000);
+}
+
+function truncateContext(text: string, maxChars: number): string {
+	if (text.length <= maxChars) return text;
+	return `${text.substring(0, maxChars - 3)}...`;
 }
 
 export function formatInterviewPlanForScan(plan: InterviewPlan): string {
