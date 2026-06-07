@@ -110,11 +110,14 @@ services:
     command: ["npx", "prisma", "studio", "--port", "5555", "--hostname", "0.0.0.0"]
     profiles:
       - tools
+    expose:
+      - "5555"
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://segundo_cerebro:${DB_PASSWORD}@postgres:5432/segundo_cerebro?schema=public
+      NODE_ENV: production
     deploy:
       resources:
         limits:
