@@ -87,10 +87,34 @@ services:
       - "443:443"
     volumes:
       - ./nginx/segundo-cerebro.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/.htpasswd:/etc/nginx/.htpasswd:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - backend
       - web
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    networks:
+      - sc-net
+
+  prisma-studio:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_USER}/segundo-cerebro:${IMAGE_TAG:-latest}
+    container_name: sc-prisma-studio
+    restart: unless-stopped
+    command: ["npx", "prisma", "studio", "--port", "5555", "--hostname", "0.0.0.0"]
+    profiles:
+      - tools
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://segundo_cerebro:${DB_PASSWORD}@postgres:5432/segundo_cerebro?schema=public
     deploy:
       resources:
         limits:

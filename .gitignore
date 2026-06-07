@@ -6,3 +6,4 @@ dist/
 !deploy/.env.prod.template
 *.log
 .DS_Store
+deploy/nginx/.htpasswd
