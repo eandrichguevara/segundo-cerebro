@@ -63,6 +63,10 @@ vi.mock("../notifications/fcm.js", () => ({
 	sendNotification: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
 }));
 
+vi.mock("../api/ws.js", () => ({
+	broadcastAuthenticated: vi.fn().mockReturnValue(1),
+}));
+
 function makeEvent(overrides: Record<string, unknown> = {}) {
 	return {
 		id: "evt-1",
@@ -945,5 +949,938 @@ describe("event-alert-worker", () => {
 
 		const { sendNotification } = await import("../notifications/fcm.js");
 		expect(vi.mocked(sendNotification)).not.toHaveBeenCalled();
+	});
+
+	it("sends chat message on first activation", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { broadcastAuthenticated } = await import("../api/ws.js");
+		// text + display = 2 calls
+		expect(vi.mocked(broadcastAuthenticated)).toHaveBeenCalledTimes(2);
+
+		// First call: text message
+		const textCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[0][0] as Record<string, unknown>;
+		expect(textCall.type).toBe("text");
+		expect(textCall.content).toContain("Trabajar en proyecto X");
+		expect(textCall.content).toContain("10:00");
+
+		// Second call: display entities
+		const displayCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[1][0] as Record<string, unknown>;
+		expect(displayCall.type).toBe("display");
+		const entities = displayCall.entities as Array<Record<string, unknown>>;
+		expect(entities).toHaveLength(1);
+		expect(entities[0]).toMatchObject({
+			type: "event",
+			title: "Trabajar en proyecto X",
+			location: "Oficina",
+			category: "trabajo",
+		});
+	});
+
+	it("does not send chat message on refresh", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+
+		// First poll: sends 2 chat messages (text + display)
+		await pollActiveEventsOnce();
+
+		const { broadcastAuthenticated } = await import("../api/ws.js");
+		expect(vi.mocked(broadcastAuthenticated)).toHaveBeenCalledTimes(2);
+
+		// Second poll: refresh only, no chat messages
+		await pollActiveEventsOnce();
+		expect(vi.mocked(broadcastAuthenticated)).toHaveBeenCalledTimes(2);
+	});
+
+	it("sends chat message with linked entities display", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { getLinksFor } = await import(
+			"../db/repositories/entity-link-repository.js"
+		);
+		vi.mocked(getLinksFor).mockResolvedValue([
+			{
+				id: "link-1",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "task",
+				targetId: "task-1",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+			{
+				id: "link-2",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "list",
+				targetId: "list-1",
+				relation: "part_of",
+				note: "Lista asociada",
+				createdAt: new Date(),
+			},
+		]);
+
+		const { getTaskById } = await import(
+			"../db/repositories/task-repository.js"
+		);
+		vi.mocked(getTaskById).mockResolvedValue({
+			id: "task-1",
+			title: "Revisar PRs",
+			description: "PRs del backend",
+			status: "in_progress",
+			priority: "high",
+			dueDate: new Date("2026-06-05T00:00:00Z"),
+		} as never);
+
+		const { getListById, getItems } = await import(
+			"../db/repositories/list-repository.js"
+		);
+		vi.mocked(getListById).mockResolvedValue({
+			id: "list-1",
+			title: "Compras",
+			description: null,
+			status: "active",
+			type: "shopping",
+		} as never);
+		vi.mocked(getItems).mockReturnValue([
+			{ content: "leche", checked: false, quantity: undefined },
+			{ content: "huevos", checked: true, quantity: undefined },
+		]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { broadcastAuthenticated } = await import("../api/ws.js");
+
+		// text message should mention linked entities summary
+		const textCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[0][0] as Record<string, unknown>;
+		expect(textCall.type).toBe("text");
+		expect(textCall.content).toContain("Trabajar en proyecto X");
+		expect(textCall.content).toContain("tarea");
+
+		// display message should include event + linked entities
+		const displayCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[1][0] as Record<string, unknown>;
+		expect(displayCall.type).toBe("display");
+		const entities = displayCall.entities as Array<Record<string, unknown>>;
+		expect(entities).toHaveLength(3); // event + task + list
+
+		// First entity is the event
+		expect(entities[0]).toMatchObject({
+			type: "event",
+			title: "Trabajar en proyecto X",
+		});
+
+		// Second entity is the linked task
+		expect(entities[1]).toMatchObject({
+			type: "task",
+			title: "Revisar PRs",
+			status: "in_progress",
+			priority: "high",
+		});
+
+		// Third entity is the linked list
+		expect(entities[2]).toMatchObject({
+			type: "list",
+			title: "Compras",
+		});
+	});
+
+	it("sends chat message for each new event independently", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent({ id: "evt-1" }) as never,
+			makeEvent({ id: "evt-2", title: "Reunión semanal" }) as never,
+		]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { broadcastAuthenticated } = await import("../api/ws.js");
+		// 2 events × 2 messages (text + display) = 4 calls
+		expect(vi.mocked(broadcastAuthenticated)).toHaveBeenCalledTimes(4);
+
+		// Verify both events appear in text messages
+		const textMessages = vi
+			.mocked(broadcastAuthenticated)
+			.mock.calls.filter(
+				(c) => (c[0] as Record<string, unknown>).type === "text",
+			)
+			.map((c) => (c[0] as Record<string, unknown>).content as string);
+		expect(textMessages).toHaveLength(2);
+		expect(textMessages[0]).toContain("Trabajar en proyecto X");
+		expect(textMessages[1]).toContain("Reunión semanal");
+	});
+
+	it("still sends chat message when no FCM tokens registered", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { getAllTokens } = await import(
+			"../db/repositories/device-repository.js"
+		);
+		vi.mocked(getAllTokens).mockResolvedValue([]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		// FCM not sent (no tokens)
+		const { sendNotification } = await import("../notifications/fcm.js");
+		expect(vi.mocked(sendNotification)).not.toHaveBeenCalled();
+
+		// Chat message still sent (WS is independent)
+		const { broadcastAuthenticated } = await import("../api/ws.js");
+		expect(vi.mocked(broadcastAuthenticated)).toHaveBeenCalledTimes(2);
+
+		// Restore default
+		vi.mocked(getAllTokens).mockResolvedValue(["token-1"]);
+	});
+
+	it("sends chat message for event without linked entities", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		// Explicitly set getLinksFor to empty (avoids cross-test contamination)
+		const { getLinksFor } = await import(
+			"../db/repositories/entity-link-repository.js"
+		);
+		vi.mocked(getLinksFor).mockResolvedValue([]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { broadcastAuthenticated } = await import("../api/ws.js");
+		expect(vi.mocked(broadcastAuthenticated)).toHaveBeenCalledTimes(2);
+
+		// Text should not contain entity summary
+		const textCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[0][0] as Record<string, unknown>;
+		expect(textCall.type).toBe("text");
+		expect(textCall.content).toContain("Trabajar en proyecto X");
+		expect(textCall.content).not.toContain("tarea");
+		expect(textCall.content).not.toContain("lista");
+		expect(textCall.content).not.toContain("objetivo");
+
+		// Display should only have the event entity
+		const displayCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[1][0] as Record<string, unknown>;
+		const entities = displayCall.entities as Array<Record<string, unknown>>;
+		expect(entities).toHaveLength(1);
+		expect(entities[0]).toMatchObject({
+			type: "event",
+			title: "Trabajar en proyecto X",
+		});
+	});
+
+	it("sends chat message for event without endTime", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent({
+				endTime: null,
+			}) as never,
+		]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { broadcastAuthenticated } = await import("../api/ws.js");
+		const displayCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[1][0] as Record<string, unknown>;
+		const entities = displayCall.entities as Array<Record<string, unknown>>;
+
+		expect(entities[0]).toMatchObject({
+			type: "event",
+			title: "Trabajar en proyecto X",
+		});
+		// endTime should not be present in the display
+		expect(entities[0]).not.toHaveProperty("endTime");
+	});
+
+	it("sends chat message for event without location and category", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent({
+				location: null,
+				category: null,
+			}) as never,
+		]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { broadcastAuthenticated } = await import("../api/ws.js");
+		const textCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[0][0] as Record<string, unknown>;
+
+		// Text should not contain location or category lines
+		expect(textCall.content).toContain("Trabajar en proyecto X");
+		expect(textCall.content).not.toContain("📍");
+		expect(textCall.content).not.toContain("#");
+
+		// Display should not have location or category
+		const displayCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[1][0] as Record<string, unknown>;
+		const entities = displayCall.entities as Array<Record<string, unknown>>;
+		expect(entities[0]).not.toHaveProperty("location");
+		expect(entities[0]).not.toHaveProperty("category");
+	});
+
+	it("does not crash when broadcast returns 0 (no WS clients connected)", async () => {
+		const { broadcastAuthenticated } = await import("../api/ws.js");
+		vi.mocked(broadcastAuthenticated).mockReturnValue(0);
+
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await expect(pollActiveEventsOnce()).resolves.toBeUndefined();
+
+		// Should still have been called (just returned 0)
+		expect(vi.mocked(broadcastAuthenticated)).toHaveBeenCalledTimes(2);
+
+		// Restore default
+		vi.mocked(broadcastAuthenticated).mockReturnValue(1);
+	});
+
+	it("sends chat message with all entity types in display", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { getLinksFor } = await import(
+			"../db/repositories/entity-link-repository.js"
+		);
+		vi.mocked(getLinksFor).mockResolvedValue([
+			{
+				id: "link-1",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "task",
+				targetId: "task-1",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+			{
+				id: "link-2",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "list",
+				targetId: "list-1",
+				relation: "part_of",
+				note: null,
+				createdAt: new Date(),
+			},
+			{
+				id: "link-3",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "objective",
+				targetId: "obj-1",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+			{
+				id: "link-4",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "project",
+				targetId: "proj-1",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+			{
+				id: "link-5",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "idea",
+				targetId: "idea-1",
+				relation: "inspired_by",
+				note: null,
+				createdAt: new Date(),
+			},
+		]);
+
+		const { getTaskById } = await import(
+			"../db/repositories/task-repository.js"
+		);
+		vi.mocked(getTaskById).mockResolvedValue({
+			id: "task-1",
+			title: "Revisar PRs",
+			description: null,
+			status: "pending",
+			priority: "high",
+			dueDate: null,
+		} as never);
+
+		const { getListById, getItems } = await import(
+			"../db/repositories/list-repository.js"
+		);
+		vi.mocked(getListById).mockResolvedValue({
+			id: "list-1",
+			title: "Compras",
+			description: null,
+			status: "active",
+			type: "shopping",
+		} as never);
+		vi.mocked(getItems).mockReturnValue([]);
+
+		const { getObjectiveById } = await import(
+			"../db/repositories/objective-repository.js"
+		);
+		vi.mocked(getObjectiveById).mockResolvedValue({
+			id: "obj-1",
+			title: "Aprender TypeScript",
+			description: null,
+			status: "active",
+			deadline: null,
+		} as never);
+
+		const { getProjectById } = await import(
+			"../db/repositories/project-repository.js"
+		);
+		vi.mocked(getProjectById).mockResolvedValue({
+			id: "proj-1",
+			title: "Rediseño web",
+			description: null,
+			status: "active",
+			category: "trabajo",
+			deadline: null,
+		} as never);
+
+		const { getIdeaById } = await import(
+			"../db/repositories/idea-repository.js"
+		);
+		vi.mocked(getIdeaById).mockResolvedValue({
+			id: "idea-1",
+			title: "App de meditación",
+			description: null,
+			status: "evaluating",
+			tags: ["salud", "bienestar"],
+		} as never);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { broadcastAuthenticated } = await import("../api/ws.js");
+		const displayCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[1][0] as Record<string, unknown>;
+		const entities = displayCall.entities as Array<Record<string, unknown>>;
+
+		// Event + 5 linked entities = 6 total
+		expect(entities).toHaveLength(6);
+
+		// Verify entity types and order
+		expect(entities[0]).toMatchObject({ type: "event" });
+		expect(entities[1]).toMatchObject({ type: "task", title: "Revisar PRs" });
+		expect(entities[2]).toMatchObject({ type: "list", title: "Compras" });
+		expect(entities[3]).toMatchObject({
+			type: "objective",
+			title: "Aprender TypeScript",
+		});
+		expect(entities[4]).toMatchObject({
+			type: "project",
+			title: "Rediseño web",
+		});
+		expect(entities[5]).toMatchObject({
+			type: "idea",
+			title: "App de meditación",
+			tags: ["salud", "bienestar"],
+		});
+	});
+
+	it("chat text uses correct singular and plural forms", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent({ id: "evt-1" }) as never,
+		]);
+
+		const { getLinksFor } = await import(
+			"../db/repositories/entity-link-repository.js"
+		);
+		// Two tasks + one list
+		vi.mocked(getLinksFor).mockResolvedValue([
+			{
+				id: "link-1",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "task",
+				targetId: "task-1",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+			{
+				id: "link-2",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "task",
+				targetId: "task-2",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+			{
+				id: "link-3",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "list",
+				targetId: "list-1",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+		]);
+
+		const { getTaskById } = await import(
+			"../db/repositories/task-repository.js"
+		);
+		vi.mocked(getTaskById)
+			.mockResolvedValueOnce({
+				id: "task-1",
+				title: "Tarea 1",
+				description: null,
+				status: "pending",
+				priority: "medium",
+				dueDate: null,
+			} as never)
+			.mockResolvedValueOnce({
+				id: "task-2",
+				title: "Tarea 2",
+				description: null,
+				status: "pending",
+				priority: "low",
+				dueDate: null,
+			} as never);
+
+		const { getListById, getItems } = await import(
+			"../db/repositories/list-repository.js"
+		);
+		vi.mocked(getListById).mockResolvedValue({
+			id: "list-1",
+			title: "Lista",
+			description: null,
+			status: "active",
+			type: "general",
+		} as never);
+		vi.mocked(getItems).mockReturnValue([]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { broadcastAuthenticated } = await import("../api/ws.js");
+		const textCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[0][0] as Record<string, unknown>;
+
+		// 2 tareas (plural) + 1 lista (singular) → "Tiene 2 tareas, 1 lista relacionadas."
+		const content = textCall.content as string;
+		expect(content).toContain("2 tareas");
+		expect(content).toContain("1 lista");
+		expect(content).toContain("relacionadas.");
+	});
+
+	it("chat text excludes projects and ideas from summary text", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent({
+				id: "evt-1",
+				title: "Revisión trimestral",
+			}) as never,
+		]);
+
+		const { getLinksFor } = await import(
+			"../db/repositories/entity-link-repository.js"
+		);
+		vi.mocked(getLinksFor).mockResolvedValue([
+			{
+				id: "link-1",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "project",
+				targetId: "proj-1",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+			{
+				id: "link-2",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "idea",
+				targetId: "idea-1",
+				relation: "inspired_by",
+				note: null,
+				createdAt: new Date(),
+			},
+		]);
+
+		const { getProjectById } = await import(
+			"../db/repositories/project-repository.js"
+		);
+		vi.mocked(getProjectById).mockResolvedValue({
+			id: "proj-1",
+			title: "Rediseño web",
+			description: null,
+			status: "active",
+			category: null,
+			deadline: null,
+		} as never);
+
+		const { getIdeaById } = await import(
+			"../db/repositories/idea-repository.js"
+		);
+		vi.mocked(getIdeaById).mockResolvedValue({
+			id: "idea-1",
+			title: "App de meditación",
+			description: null,
+			status: "evaluating",
+			tags: [],
+		} as never);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { broadcastAuthenticated } = await import("../api/ws.js");
+		const textCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[0][0] as Record<string, unknown>;
+
+		// Text should NOT mention projects or ideas
+		const content = textCall.content as string;
+		expect(content).not.toContain("proyecto");
+		expect(content).not.toContain("idea");
+
+		// But display still includes them
+		const displayCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[1][0] as Record<string, unknown>;
+		const entities = displayCall.entities as Array<Record<string, unknown>>;
+		expect(entities).toHaveLength(3); // event + project + idea
+		expect(entities[1]).toMatchObject({ type: "project" });
+		expect(entities[2]).toMatchObject({ type: "idea" });
+	});
+
+	it("includes list items with quantities in display message", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { getLinksFor } = await import(
+			"../db/repositories/entity-link-repository.js"
+		);
+		vi.mocked(getLinksFor).mockResolvedValue([
+			{
+				id: "link-1",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "list",
+				targetId: "list-1",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+		]);
+
+		const { getListById, getItems } = await import(
+			"../db/repositories/list-repository.js"
+		);
+		vi.mocked(getListById).mockResolvedValue({
+			id: "list-1",
+			title: "Supermercado",
+			description: null,
+			status: "active",
+			type: "shopping",
+		} as never);
+		vi.mocked(getItems).mockReturnValue([
+			{ content: "2 kg arroz", checked: false, quantity: "2 kg" },
+			{ content: "pan", checked: true, quantity: undefined },
+			{ content: "leche", checked: false, quantity: "1 L" },
+		]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { broadcastAuthenticated } = await import("../api/ws.js");
+		const displayCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[1][0] as Record<string, unknown>;
+		const entities = displayCall.entities as Array<Record<string, unknown>>;
+
+		expect(entities).toHaveLength(2); // event + list
+		expect(entities[1]).toMatchObject({
+			type: "list",
+			title: "Supermercado",
+		});
+
+		const listEntity = entities[1] as Record<string, unknown>;
+		const items = listEntity.items as Array<Record<string, unknown>>;
+		expect(items).toHaveLength(3);
+		expect(items[0]).toEqual({
+			content: "2 kg arroz",
+			checked: false,
+			quantity: "2 kg",
+		});
+		expect(items[1]).toEqual({
+			content: "pan",
+			checked: true,
+		});
+		expect(items[2]).toEqual({
+			content: "leche",
+			checked: false,
+			quantity: "1 L",
+		});
+	});
+
+	it("sends chat message for event with recurrence rule", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent({
+				id: "evt-1",
+				recurrenceRule: { frequency: "weekly", interval: 1 },
+			}) as never,
+		]);
+
+		// Make the recurring event active by returning an instance spanning now
+		const { generateRecurrenceInstances } = await import("../domain/event.js");
+		const now = new Date();
+		vi.mocked(generateRecurrenceInstances).mockReturnValue([
+			{
+				start: new Date(now.getTime() - 3_600_000),
+				end: new Date(now.getTime() + 3_600_000),
+			},
+		]);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { broadcastAuthenticated } = await import("../api/ws.js");
+		expect(vi.mocked(broadcastAuthenticated)).toHaveBeenCalledTimes(2);
+
+		const displayCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[1][0] as Record<string, unknown>;
+		const entities = displayCall.entities as Array<Record<string, unknown>>;
+
+		expect(entities[0]).toMatchObject({
+			type: "event",
+			title: "Trabajar en proyecto X",
+		});
+		expect(entities[0]).toHaveProperty("recurrence");
+		expect((entities[0] as Record<string, unknown>).recurrence).toBe("weekly");
+	});
+
+	it("sends chat message when event is link target (bidirectional links)", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { getLinksFor } = await import(
+			"../db/repositories/entity-link-repository.js"
+		);
+		// Link where event is the TARGET, not the source
+		vi.mocked(getLinksFor).mockResolvedValue([
+			{
+				id: "link-1",
+				sourceType: "task",
+				sourceId: "task-1",
+				targetType: "event",
+				targetId: "evt-1",
+				relation: "related",
+				note: "Tarea vinculada",
+				createdAt: new Date(),
+			},
+		]);
+
+		const { getTaskById } = await import(
+			"../db/repositories/task-repository.js"
+		);
+		vi.mocked(getTaskById).mockResolvedValue({
+			id: "task-1",
+			title: "Preparar materiales",
+			description: null,
+			status: "pending",
+			priority: "high",
+			dueDate: null,
+		} as never);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { broadcastAuthenticated } = await import("../api/ws.js");
+
+		// Text should mention the linked task
+		const textCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[0][0] as Record<string, unknown>;
+		expect(textCall.content).toContain("tarea");
+
+		// Display should include event + linked task
+		const displayCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[1][0] as Record<string, unknown>;
+		const entities = displayCall.entities as Array<Record<string, unknown>>;
+		expect(entities).toHaveLength(2);
+		expect(entities[0]).toMatchObject({ type: "event" });
+		expect(entities[1]).toMatchObject({
+			type: "task",
+			title: "Preparar materiales",
+		});
+	});
+
+	it("handles partial linked entity resolution failure gracefully", async () => {
+		const { getActiveEventsInProgress } = await import(
+			"../db/repositories/event-repository.js"
+		);
+		vi.mocked(getActiveEventsInProgress).mockResolvedValue([
+			makeEvent() as never,
+		]);
+
+		const { getLinksFor } = await import(
+			"../db/repositories/entity-link-repository.js"
+		);
+		vi.mocked(getLinksFor).mockResolvedValue([
+			{
+				id: "link-1",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "list",
+				targetId: "list-1",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+			{
+				id: "link-2",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "task",
+				targetId: "task-1",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+			{
+				id: "link-3",
+				sourceType: "event",
+				sourceId: "evt-1",
+				targetType: "objective",
+				targetId: "obj-1",
+				relation: "related",
+				note: null,
+				createdAt: new Date(),
+			},
+		]);
+
+		const { getListById, getItems } = await import(
+			"../db/repositories/list-repository.js"
+		);
+		vi.mocked(getListById).mockResolvedValue({
+			id: "list-1",
+			title: "Compras",
+			description: null,
+			status: "active",
+			type: "shopping",
+		} as never);
+		vi.mocked(getItems).mockReturnValue([]);
+
+		// Task resolution throws
+		const { getTaskById } = await import(
+			"../db/repositories/task-repository.js"
+		);
+		vi.mocked(getTaskById).mockRejectedValue(new Error("DB connection lost"));
+
+		// Objective resolves fine
+		const { getObjectiveById } = await import(
+			"../db/repositories/objective-repository.js"
+		);
+		vi.mocked(getObjectiveById).mockResolvedValue({
+			id: "obj-1",
+			title: "Meta trimestral",
+			description: null,
+			status: "active",
+			deadline: null,
+		} as never);
+
+		const { pollActiveEventsOnce } = await import("./event-alert-worker.js");
+		await pollActiveEventsOnce();
+
+		const { broadcastAuthenticated } = await import("../api/ws.js");
+
+		// Should have sent chat message despite partial failure
+		expect(vi.mocked(broadcastAuthenticated)).toHaveBeenCalledTimes(2);
+
+		// Display should include event + list + objective (task failed)
+		const displayCall = vi.mocked(broadcastAuthenticated).mock
+			.calls[1][0] as Record<string, unknown>;
+		const entities = displayCall.entities as Array<Record<string, unknown>>;
+		expect(entities).toHaveLength(3); // event + list + objective
+		expect(entities[0]).toMatchObject({ type: "event" });
+		expect(entities[1]).toMatchObject({ type: "list", title: "Compras" });
+		expect(entities[2]).toMatchObject({
+			type: "objective",
+			title: "Meta trimestral",
+		});
+
+		// Verify the task error was logged
+		const { logger } = await import("../config/logger.js");
+		expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
+			expect.objectContaining({
+				otherType: "task",
+				otherId: "task-1",
+			}),
+			"Error resolving linked entity",
+		);
 	});
 });

@@ -63,6 +63,21 @@ export function sendToSession(
 	}
 }
 
+export function broadcastAuthenticated(msg: Record<string, unknown>): number {
+	let sent = 0;
+	for (const state of connections.values()) {
+		if (state.authenticated) {
+			try {
+				state.socket.send(JSON.stringify(msg));
+				sent++;
+			} catch {
+				// ignore individual send failures
+			}
+		}
+	}
+	return sent;
+}
+
 export function getInterviewState(sessionId: string): InterviewState | null {
 	const state = getSessionState(sessionId);
 	return state?.interviewState ?? null;

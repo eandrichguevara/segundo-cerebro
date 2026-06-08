@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { broadcastAuthenticated } from "../api/ws.js";
 import {
 	formatDateInTimezone,
 	formatTimeInTimezone,
@@ -21,6 +22,15 @@ import {
 	generateRecurrenceInstances,
 } from "../domain/event.js";
 import { sendNotification } from "../notifications/fcm.js";
+import type {
+	DisplayEntity,
+	EventDisplay,
+	IdeaDisplay,
+	ListDisplay,
+	ObjectiveDisplay,
+	ProjectDisplay,
+	TaskDisplay,
+} from "../types/display.js";
 
 const POLL_INTERVAL_MS = 60_000;
 const MAX_LIST_ITEMS = 15;
@@ -215,12 +225,176 @@ async function resolveLinkedEntities(
 	return entities;
 }
 
+function buildEventChatText(
+	event: EventRecord,
+	linkedEntities: LinkedEntityData[],
+): string {
+	const timeStr = `${formatTimeInTimezone(event.startTime)}${event.endTime ? ` - ${formatTimeInTimezone(event.endTime)}` : ""}`;
+	const parts: string[] = [`📅 **${event.title}** empieza ahora · ${timeStr}`];
+	if (event.location) parts.push(`📍 ${event.location}`);
+	if (event.category) parts.push(`#${event.category}`);
+
+	const listCount = linkedEntities.filter((e) => e.type === "list").length;
+	const taskCount = linkedEntities.filter((e) => e.type === "task").length;
+	const objectiveCount = linkedEntities.filter(
+		(e) => e.type === "objective",
+	).length;
+
+	const summary: string[] = [];
+	if (taskCount > 0)
+		summary.push(`${taskCount} tarea${taskCount > 1 ? "s" : ""}`);
+	if (listCount > 0)
+		summary.push(`${listCount} lista${listCount > 1 ? "s" : ""}`);
+	if (objectiveCount > 0)
+		summary.push(`${objectiveCount} objetivo${objectiveCount > 1 ? "s" : ""}`);
+
+	if (summary.length > 0) {
+		parts.push(
+			`Tiene ${summary.join(", ")} relacionada${summary.length > 1 ? "s" : ""}.`,
+		);
+	}
+
+	return parts.join("\n");
+}
+
+function buildEventDisplayEntities(
+	event: EventRecord,
+	linkedEntities: LinkedEntityData[],
+): DisplayEntity[] {
+	const entities: DisplayEntity[] = [];
+
+	// Event display
+	const eventDisplay: EventDisplay = {
+		type: "event",
+		title: event.title,
+		startTime: event.startTime.toISOString(),
+	};
+	if (event.endTime) eventDisplay.endTime = event.endTime.toISOString();
+	if (event.location) eventDisplay.location = event.location;
+	if (event.category) eventDisplay.category = event.category;
+	if (event.recurrenceRule && typeof event.recurrenceRule === "object") {
+		const rule = event.recurrenceRule as Record<string, unknown>;
+		eventDisplay.recurrence = String(rule.frequency ?? "custom");
+	}
+	entities.push(eventDisplay);
+
+	// Linked entity displays
+	for (const ent of linkedEntities) {
+		switch (ent.type) {
+			case "task": {
+				const taskDisplay: TaskDisplay = {
+					type: "task",
+					title: ent.title,
+					priority: (ent.priority as "high" | "medium" | "low") ?? "medium",
+					status:
+						(ent.status as
+							| "pending"
+							| "in_progress"
+							| "completed"
+							| "postponed"
+							| "cancelled") ?? "pending",
+				};
+				if (ent.deadline) taskDisplay.dueDate = ent.deadline;
+				entities.push(taskDisplay);
+				break;
+			}
+			case "list": {
+				const listDisplay: ListDisplay = {
+					type: "list",
+					title: ent.title,
+					items: (ent.items ?? []).map((i) => ({
+						content: i.content,
+						checked: i.checked,
+						...(i.quantity ? { quantity: i.quantity } : {}),
+					})),
+				};
+				entities.push(listDisplay);
+				break;
+			}
+			case "objective": {
+				const objDisplay: ObjectiveDisplay = {
+					type: "objective",
+					title: ent.title,
+					status:
+						(ent.status as "active" | "paused" | "completed" | "cancelled") ??
+						"active",
+				};
+				if (ent.deadline) objDisplay.deadline = ent.deadline;
+				entities.push(objDisplay);
+				break;
+			}
+			case "project": {
+				const projDisplay: ProjectDisplay = {
+					type: "project",
+					title: ent.title,
+					status:
+						(ent.status as "active" | "paused" | "completed" | "cancelled") ??
+						"active",
+				};
+				if (ent.category) projDisplay.category = ent.category;
+				if (ent.deadline) projDisplay.deadline = ent.deadline;
+				entities.push(projDisplay);
+				break;
+			}
+			case "idea": {
+				const ideaDisplay: IdeaDisplay = {
+					type: "idea",
+					title: ent.title,
+					status:
+						(ent.status as
+							| "new_idea"
+							| "evaluating"
+							| "approved"
+							| "discarded"
+							| "converted") ?? "new_idea",
+				};
+				if (ent.tags && ent.tags.length > 0) ideaDisplay.tags = ent.tags;
+				entities.push(ideaDisplay);
+				break;
+			}
+		}
+	}
+
+	return entities;
+}
+
+function sendEventChatMessage(
+	event: EventRecord,
+	linkedEntities: LinkedEntityData[],
+): void {
+	const text = buildEventChatText(event, linkedEntities);
+	const display = buildEventDisplayEntities(event, linkedEntities);
+
+	// Send text message first
+	const sentText = broadcastAuthenticated({
+		version: "1",
+		type: "text",
+		content: text,
+	});
+
+	// Send display entities for native rendering
+	const sentDisplay = broadcastAuthenticated({
+		version: "1",
+		type: "display",
+		entities: display,
+	});
+
+	if (sentText > 0 || sentDisplay > 0) {
+		logger.info(
+			{
+				eventId: event.id,
+				eventTitle: event.title,
+				connectedClients: Math.max(sentText, sentDisplay),
+			},
+			"Event chat message sent",
+		);
+	}
+}
+
 async function sendEventNotification(
 	event: EventRecord,
-	links: entityLinkRepository.EntityLinkRecord[],
+	linkedEntities: LinkedEntityData[],
 ): Promise<void> {
-	const linkedEntities = await resolveLinkedEntities(links);
-
 	const timeStr = `${formatTimeInTimezone(event.startTime)}${event.endTime ? ` - ${formatTimeInTimezone(event.endTime)}` : ""}`;
 	const dateStr = formatDateInTimezone(event.startTime);
 
@@ -362,20 +536,26 @@ async function pollActiveEvents(): Promise<void> {
 			}
 
 			const links = await entityLinkRepository.getLinksFor("event", event.id);
-			await sendEventNotification(event, links);
-			notificationTimestamps.set(event.id, now.getTime());
+			const linkedEntities = await resolveLinkedEntities(links);
 
 			if (lastSent === undefined) {
+				// First activation: send FCM push + chat message
+				await sendEventNotification(event, linkedEntities);
+				sendEventChatMessage(event, linkedEntities);
 				logger.info(
 					{ eventId: event.id, eventTitle: event.title },
 					"Event notification sent",
 				);
 			} else {
+				// Refresh: only send FCM push
+				await sendEventNotification(event, linkedEntities);
 				logger.debug(
 					{ eventId: event.id, eventTitle: event.title },
 					"Event notification refreshed",
 				);
 			}
+
+			notificationTimestamps.set(event.id, now.getTime());
 		}
 
 		for (const [eventId] of notificationTimestamps) {
