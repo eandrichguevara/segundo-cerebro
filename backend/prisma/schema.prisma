@@ -108,20 +108,23 @@ enum EntityType {
 }
 
 model Task {
-  id          String         @id @default(uuid()) @db.Uuid
-  title       String
-  description String?
-  status      TaskStatus     @default(pending)
-  dueDate     DateTime?      @map("due_date") @db.Timestamptz()
-  priority    TaskPriority   @default(medium)
-  context     Json?          @default("{}") @db.JsonB
-  objectiveId String?        @map("objective_id") @db.Uuid
-  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz()
-  cancelledAt DateTime?      @map("cancelled_at") @db.Timestamptz()
+  id               String         @id @default(uuid()) @db.Uuid
+  title            String
+  description      String?
+  status           TaskStatus     @default(pending)
+  dueDate          DateTime?      @map("due_date") @db.Timestamptz()
+  priority         TaskPriority   @default(medium)
+  context          Json?          @default("{}") @db.JsonB
+  objectiveId      String?        @map("objective_id") @db.Uuid
+  reminderAt       DateTime?      @map("reminder_at") @db.Timestamptz()
+  reminderFiredAt  DateTime?      @map("reminder_fired_at") @db.Timestamptz()
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime       @updatedAt @map("updated_at") @db.Timestamptz()
+  cancelledAt      DateTime?      @map("cancelled_at") @db.Timestamptz()
 
   objective Objective? @relation(fields: [objectiveId], references: [id])
 
+  @@index([reminderAt, reminderFiredAt])
   @@map("tasks")
 }
 

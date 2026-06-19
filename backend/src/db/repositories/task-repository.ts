@@ -11,6 +11,8 @@ type TaskRecord = {
 	priority: string;
 	context: Prisma.JsonValue;
 	objectiveId: string | null;
+	reminderAt: Date | null;
+	reminderFiredAt: Date | null;
 	createdAt: Date;
 	updatedAt: Date;
 	cancelledAt: Date | null;
@@ -23,6 +25,7 @@ export async function createTask(data: {
 	objectiveId?: string;
 	priority?: string;
 	context?: Record<string, unknown>;
+	reminderAt?: string;
 }) {
 	const task = await prisma.task.create({
 		data: {
@@ -32,6 +35,7 @@ export async function createTask(data: {
 			objectiveId: data.objectiveId ?? null,
 			priority: (data.priority ?? "medium") as $Enums.TaskPriority,
 			context: (data.context ?? {}) as Prisma.InputJsonValue,
+			reminderAt: data.reminderAt ? new Date(data.reminderAt) : null,
 		},
 	});
 	return task as unknown as TaskRecord;
@@ -51,6 +55,7 @@ export async function updateTask(
 		objectiveId?: string | null;
 		priority?: string;
 		context?: Record<string, unknown>;
+		reminderAt?: string | null;
 	},
 ) {
 	const updateData: Prisma.TaskUncheckedUpdateInput = {};
@@ -63,6 +68,8 @@ export async function updateTask(
 		updateData.priority = data.priority as $Enums.TaskPriority;
 	if (data.context !== undefined)
 		updateData.context = data.context as Prisma.InputJsonValue;
+	if (data.reminderAt !== undefined)
+		updateData.reminderAt = data.reminderAt ? new Date(data.reminderAt) : null;
 
 	const task = await prisma.task.update({ where: { id }, data: updateData });
 	return task as unknown as TaskRecord;
@@ -100,4 +107,33 @@ export async function getTasksByObjective(objectiveId: string) {
 		where: { objectiveId },
 	});
 	return tasks as unknown as TaskRecord[];
+}
+
+/**
+ * Returns active tasks whose reminder is due and has not been fired yet.
+ * Used by the task-reminder-worker poll loop.
+ */
+export async function getTasksDueForReminder(now: Date) {
+	const tasks = await prisma.task.findMany({
+		where: {
+			reminderAt: { lte: now },
+			reminderFiredAt: null,
+			status: {
+				notIn: ["completed", "cancelled"] as $Enums.TaskStatus[],
+			},
+		},
+		orderBy: { reminderAt: "asc" },
+	});
+	return tasks as unknown as TaskRecord[];
+}
+
+/**
+ * Marks a task's reminder as fired (oneshot — prevents re-sending).
+ */
+export async function markReminderFired(id: string, firedAt: Date) {
+	const task = await prisma.task.update({
+		where: { id },
+		data: { reminderFiredAt: firedAt },
+	});
+	return task as unknown as TaskRecord;
 }
