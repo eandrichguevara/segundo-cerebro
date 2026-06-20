@@ -1,0 +1,73 @@
+name: Build & Distribute APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'appmovil/**'
+      - '.github/workflows/apk.yml'
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    name: Build & Distribute APK (Firebase)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: appmovil
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.4'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Create .env file
+        run: |
+          cat > .env << 'EOF'
+          WS_URL=${{ secrets.WS_URL }}
+          AUTH_TOKEN=${{ secrets.AUTH_TOKEN }}
+          EOF
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Build APK (debug)
+        run: |
+          flutter build apk --debug \
+            --build-number=${{ github.run_number }} \
+            --build-name=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-debug-${{ github.run_number }}
+          path: appmovil/build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 14
+
+      - name: Distribute via Firebase App Distribution
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        with:
+          appId: ${{ secrets.FIREBASE_APP_ID }}
+          serviceCredentialsFileContent: ${{ secrets.FCM_SERVICE_ACCOUNT }}
+          groups: testers
+          file: build/app/outputs/flutter-apk/app-debug.apk
+          releaseNotes: |
+            Commit: ${{ github.sha }}
+            Mensaje: ${{ github.event.head_commit.message }}
+            Build: #${{ github.run_number }}
