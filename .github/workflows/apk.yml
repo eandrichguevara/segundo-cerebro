@@ -60,14 +60,18 @@ jobs:
           path: appmovil/build/app/outputs/flutter-apk/app-debug.apk
           retention-days: 14
 
-      - name: Distribute via Firebase App Distribution
-        uses: wzieba/Firebase-Distribution-Github-Action@v1
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
         with:
-          appId: ${{ secrets.FIREBASE_APP_ID }}
-          serviceCredentialsFileContent: ${{ secrets.FIREBASE_APP_DISTRIBUTION_SA }}
-          groups: testers
-          file: build/app/outputs/flutter-apk/app-debug.apk
-          releaseNotes: |
-            Commit: ${{ github.sha }}
-            Mensaje: ${{ github.event.head_commit.message }}
-            Build: #${{ github.run_number }}
+          credentials_json: ${{ secrets.FIREBASE_APP_DISTRIBUTION_SA }}
+
+      - name: Distribute via Firebase App Distribution
+        run: |
+          npx firebase-tools@latest appdistribution:distribute \
+            build/app/outputs/flutter-apk/app-debug.apk \
+            --app ${{ secrets.FIREBASE_APP_ID }} \
+            --groups "testers" \
+            --release-notes "Commit: ${{ github.sha }}
+          Mensaje: ${{ github.event.head_commit.message }}
+          Build: #${{ github.run_number }}"
+
